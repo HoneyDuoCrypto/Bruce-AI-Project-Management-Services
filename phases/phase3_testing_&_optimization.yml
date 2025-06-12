@@ -1,0 +1,433 @@
+phase:
+  id: 3
+  name: Testing & Optimization
+  description: Comprehensive stress testing and optimization of Bruce system under
+    complex, real-world scenarios
+  context:
+    background: 'Bruce has been successfully migrated and is now portable. Phases
+      1 & 2 are complete with
+
+      15/15 tasks (100%). We now need to validate Bruce can handle complex, real-world
+      scenarios
+
+      and optimize performance for production use. This includes multi-project management,
+
+      concurrent usage, large task volumes, and edge cases that could break the system.
+
+      '
+    vision: '- Bruce handles 100+ tasks across 10+ phases without performance degradation
+
+      - Concurrent multi-user scenarios work flawlessly
+
+      - Complex dependency chains are tracked accurately
+
+      - System remains stable under stress with graceful error handling
+
+      - Blueprint generation works with large datasets
+
+      - Configuration system scales to enterprise scenarios
+
+      - True production-ready reliability and performance
+
+      '
+    decisions_made: '- Focus on stress testing over new features
+
+      - Test with realistic data volumes (not toy examples)
+
+      - Validate multi-project concurrent usage scenarios
+
+      - Performance benchmarks must be quantified and measurable
+
+      - Error handling must be robust and user-friendly
+
+      - All optimizations must maintain backward compatibility
+
+      - Documentation generation must scale to large projects
+
+      '
+    constraints: '- Cannot break existing functionality (15 completed tasks)
+
+      - Must maintain config system compatibility
+
+      - Performance targets: <2s page loads, <5s blueprint generation
+
+      - Memory usage must remain reasonable for typical VPS
+
+      - All tests must be reproducible and automated where possible
+
+      '
+tasks:
+- id: implement-web-project-switching
+  description: Add project switching capability to web interface
+  status: in-progress
+  output: Web UI with project selection dropdown and dynamic project loading
+  acceptance_criteria:
+  - Can switch between projects in web interface
+  - All pages (tasks, phases, config) reflect selected project
+  - Project selection persists across browser sessions
+  - Can discover and add new projects through UI
+  - No data bleeding between projects
+  why: Web interface currently locked to one project - need multi-project support
+    for testing
+  connects_to: Foundation for all multi-project testing and real-world usage
+  implementation_notes: '- Add project selection dropdown to navigation bar
+
+    - Implement project discovery (scan for bruce.yaml files)
+
+    - Add "Browse Projects" button to find new projects
+
+    - Dynamic loading of TaskManager for selected project
+
+    - Update all web routes to use selected project context
+
+    - Persist selected project in session/cookie
+
+    - Add "Recent Projects" quick access list
+
+    '
+  updated: '2025-06-12T08:40:40.993770'
+  notes:
+  - timestamp: '2025-06-12T08:40:40.993774'
+    note: Task started
+- id: enhance-data-isolation
+  description: Ensure complete data isolation between projects and optimize storage
+  status: pending
+  output: Enhanced data layer with project isolation and performance improvements
+  depends_on:
+  - implement-web-project-switching
+  acceptance_criteria:
+  - Zero shared state between different project instances
+  - Concurrent project access doesn't cause conflicts
+  - Fast project switching (<1 second)
+  - Project data integrity maintained under all scenarios
+  - Clear error handling for corrupted/missing projects
+  why: Need bulletproof isolation between projects to prevent data corruption and
+    conflicts
+  connects_to: Critical foundation for concurrent multi-project usage
+  implementation_notes: '- Audit TaskManager for any shared state issues
+
+    - Implement proper project context isolation
+
+    - Optimize YAML loading for project switching
+
+    - Add project validation and health checks
+
+    - Implement project locking for concurrent access
+
+    - Add project-specific temporary file handling
+
+    - Optimize context file organization per project
+
+    '
+- id: stress-test-large-project
+  description: Create and test Bruce with a realistic large project (50+ tasks, 8+
+    phases)
+  status: pending
+  output: Large test project with performance benchmarks and optimization recommendations
+  acceptance_criteria:
+  - Web interface loads in <2 seconds with 50+ tasks
+  - Blueprint generation completes in <5 seconds
+  - CLI operations remain responsive
+  - Memory usage stays under 500MB
+  - All existing functionality works with large dataset
+  why: Need to validate Bruce scales beyond toy examples to real-world complexity
+  connects_to: Foundation for all other stress testing - establishes performance baseline
+  implementation_notes: "- Create realistic trading bot project with 50+ granular\
+    \ tasks\n- 8 phases: Setup, Data Pipeline, Strategy Engine, Risk Management, \n\
+    \  Backtesting, Paper Trading, Live Trading, Monitoring\n- Complex dependency\
+    \ chains with cross-phase dependencies\n- Measure page load times, task loading,\
+    \ blueprint generation\n- Test with different task statuses and completion patterns\n"
+- id: stress-test-concurrent-users
+  description: Test Bruce with multiple concurrent users and sessions
+  status: pending
+  output: Concurrent usage test suite and session isolation validation
+  depends_on:
+  - stress-test-large-project
+  acceptance_criteria:
+  - Multiple users can start different tasks simultaneously
+  - No data corruption in YAML files under concurrent access
+  - Web sessions remain isolated and stable
+  - Git operations handle concurrent commits gracefully
+  - Context generation works properly for all users
+  why: Real-world usage involves multiple developers/sessions accessing Bruce simultaneously
+  connects_to: Validates Bruce's architecture can handle team scenarios
+  implementation_notes: '- Simulate 3-5 concurrent web sessions
+
+    - Mix of CLI and web interface usage simultaneously
+
+    - Test session isolation (one user''s actions don''t affect others)
+
+    - Concurrent task starting, completing, and context generation
+
+    - Database/file locking validation for YAML updates
+
+    - Test git integration under concurrent usage
+
+    '
+- id: stress-test-multi-project
+  description: Test Bruce managing multiple projects with different configurations
+  status: pending
+  output: Multi-project test scenarios and configuration isolation validation
+  depends_on:
+  - stress-test-large-project
+  - enhance-data-isolation
+  acceptance_criteria:
+  - bruce init works correctly in any directory
+  - Different projects use correct configurations
+  - No configuration bleeding between projects
+  - Blueprint export/import works between projects
+  - Context generation adapts to different project types
+  - Web UI project switching works flawlessly
+  why: Bruce's portability means users will run multiple projects - need to ensure
+    no interference
+  connects_to: Validates the config system design and project isolation
+  implementation_notes: '- Create 3-4 different project types (web app, AI model,
+    trading bot, mobile app)
+
+    - Each with different bruce.yaml configurations
+
+    - Different directory structures and port configurations
+
+    - Test ''bruce init'' in various scenarios and environments
+
+    - Validate context generation works across different project types
+
+    - Test blueprint import/export between projects
+
+    - Test web UI project switching with all project types
+
+    '
+- id: stress-test-complex-dependencies
+  description: Test Bruce with complex task dependency chains and circular references
+  status: pending
+  output: Dependency resolution testing suite and error handling validation
+  depends_on:
+  - stress-test-large-project
+  acceptance_criteria:
+  - Circular dependencies are detected and reported clearly
+  - Complex dependency chains resolve correctly
+  - Related task discovery works with deep relationships
+  - Blueprint generation handles complex graphs gracefully
+  - Error messages are helpful for dependency issues
+  why: Real projects have complex dependencies - need to ensure Bruce handles edge
+    cases
+  connects_to: Validates task management core logic under complex scenarios
+  implementation_notes: '- Create intentional circular dependencies to test error
+    handling
+
+    - Long dependency chains (A->B->C->D->E->F)
+
+    - Cross-phase dependencies with different completion states
+
+    - Test dependency resolution with blocked and failed tasks
+
+    - Validate related task discovery with complex relationships
+
+    - Test blueprint generation with complex dependency graphs
+
+    '
+- id: optimize-task-loading
+  description: Optimize task loading performance for large datasets
+  status: pending
+  output: Optimized task loading with lazy loading and caching strategies
+  depends_on:
+  - stress-test-large-project
+  - stress-test-concurrent-users
+  acceptance_criteria:
+  - 50% improvement in task list loading times
+  - Reduced memory usage for large projects
+  - Web interface remains responsive during loading
+  - Caching doesn't cause stale data issues
+  - All existing functionality preserved
+  why: Large projects need optimized loading to maintain responsive interface
+  connects_to: Core performance optimization for scalability
+  implementation_notes: '- Implement lazy loading for task lists
+
+    - Add caching for frequently accessed data
+
+    - Optimize YAML parsing for large phase files
+
+    - Minimize redundant file reads
+
+    - Optimize web interface rendering for large task lists
+
+    - Add pagination or virtual scrolling if needed
+
+    '
+- id: optimize-blueprint-generation
+  description: Optimize blueprint generation for large projects and complex analyses
+  status: pending
+  output: Optimized blueprint generator with performance improvements
+  depends_on:
+  - stress-test-large-project
+  - stress-test-complex-dependencies
+  acceptance_criteria:
+  - Blueprint generation under 5 seconds for 50+ task projects
+  - Incremental updates work correctly
+  - Progress indicators provide clear feedback
+  - Generated blueprints maintain quality and completeness
+  - Memory usage optimized for large codebases
+  why: Blueprint generation must scale to large projects without timing out
+  connects_to: Essential for maintaining documentation quality at scale
+  implementation_notes: '- Profile current blueprint generation bottlenecks
+
+    - Optimize AST parsing and code analysis
+
+    - Add incremental blueprint updates (only changed sections)
+
+    - Optimize template rendering for large datasets
+
+    - Add progress indicators for long operations
+
+    - Implement blueprint generation queuing if needed
+
+    '
+- id: stress-test-error-handling
+  description: Test Bruce's error handling and recovery under failure conditions
+  status: pending
+  output: Comprehensive error handling test suite and graceful degradation validation
+  depends_on:
+  - stress-test-concurrent-users
+  - stress-test-complex-dependencies
+  acceptance_criteria:
+  - Corrupted data is detected and reported clearly
+  - System degrades gracefully under resource constraints
+  - No data loss occurs during error scenarios
+  - Clear error messages guide user recovery
+  - System can recover automatically where possible
+  why: Production systems must handle errors gracefully without data loss
+  connects_to: Critical for production reliability and user experience
+  implementation_notes: '- Test corrupted YAML files and recovery
+
+    - Test disk space exhaustion scenarios
+
+    - Test network interruption during git operations
+
+    - Test permission errors and access issues
+
+    - Test invalid configuration scenarios
+
+    - Test handling of missing dependencies and files
+
+    - Validate data backup and recovery procedures
+
+    '
+- id: optimize-config-system
+  description: Optimize and enhance the configuration system for enterprise scenarios
+  status: pending
+  output: Enhanced configuration system with validation, templates, and inheritance
+  depends_on:
+  - stress-test-multi-project
+  - stress-test-error-handling
+  acceptance_criteria:
+  - Invalid configurations are caught with clear messages
+  - Configuration templates speed up project setup
+  - Environment variables work for sensitive data
+  - Configuration inheritance works correctly
+  - Migration tools handle config updates smoothly
+  why: Enterprise usage requires robust configuration management and validation
+  connects_to: Enables advanced Bruce deployments and team usage
+  implementation_notes: '- Add configuration validation with helpful error messages
+
+    - Create configuration templates for common project types
+
+    - Implement configuration inheritance (global -> project -> local)
+
+    - Add environment variable support for sensitive values
+
+    - Create configuration migration tools for updates
+
+    - Add configuration backup and versioning
+
+    '
+- id: validate-production-readiness
+  description: Final validation of Bruce system for production deployment
+  status: pending
+  output: Production readiness checklist and deployment guide
+  depends_on:
+  - optimize-task-loading
+  - optimize-blueprint-generation
+  - optimize-config-system
+  acceptance_criteria:
+  - All performance targets consistently met
+  - Full test suite passes without issues
+  - Deployment documentation is complete and tested
+  - Security checklist addresses common vulnerabilities
+  - Monitoring and backup procedures are documented
+  why: Need comprehensive validation before declaring Bruce production-ready
+  connects_to: Culmination of all testing and optimization efforts
+  implementation_notes: '- Run full test suite against optimized system
+
+    - Validate all performance targets are met
+
+    - Test deployment scenarios (docker, systemd, etc.)
+
+    - Create monitoring and logging recommendations
+
+    - Document backup and recovery procedures
+
+    - Create security checklist and hardening guide
+
+    - Validate documentation completeness
+
+    '
+- id: create-test-automation
+  description: Create automated test suite for ongoing Bruce development
+  status: pending
+  output: Comprehensive automated test suite with CI/CD integration
+  depends_on:
+  - validate-production-readiness
+  acceptance_criteria:
+  - 90%+ code coverage for critical paths
+  - All stress test scenarios are automated
+  - Performance regression tests catch degradation
+  - CI/CD pipeline runs tests on every change
+  - Test results are clear and actionable
+  why: Automated testing ensures future changes don't break existing functionality
+  connects_to: Enables confident future development and maintenance
+  implementation_notes: '- Unit tests for core TaskManager functionality
+
+    - Integration tests for CLI and web interface
+
+    - Performance regression tests
+
+    - Configuration validation tests
+
+    - Blueprint generation tests
+
+    - Multi-project scenario tests
+
+    - Setup GitHub Actions or similar CI/CD
+
+    '
+- id: cleanup-test-environment
+  description: Clean up all test data, projects, and temporary files created during
+    Phase 3
+  status: pending
+  output: Clean Bruce system ready for production use with cleanup procedures documented
+  depends_on:
+  - create-test-automation
+  acceptance_criteria:
+  - All test projects and data removed from system
+  - Bruce returns to clean state with optimizations preserved
+  - Core functionality verified working post-cleanup
+  - Cleanup procedures documented for future use
+  - Production deployment package ready
+  why: Testing creates substantial test data that should be cleaned up for production
+    deployment
+  connects_to: Final step ensuring Bruce is production-ready and clean
+  implementation_notes: '- Remove all test projects and their data
+
+    - Clean up temporary configuration files
+
+    - Reset Bruce to clean state while preserving optimizations
+
+    - Document cleanup procedures for future testing
+
+    - Validate core Bruce functionality still works post-cleanup
+
+    - Create clean deployment package/instructions
+
+    - Archive test results and performance benchmarks
+
+    '

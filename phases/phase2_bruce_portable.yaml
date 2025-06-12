@@ -1,0 +1,164 @@
+# Blueprint Template for Bruce Import
+# This template shows all available fields for rich context
+
+phase:
+  id: 2
+  name: "Make Bruce Portable"
+  description: "Transform HDW system into portable Bruce that works for any project"
+  
+  # Phase-level context that applies to all tasks
+  context:
+    background: |
+      This system was originally built as "Honey Duo Wealth" (HDW) - a project-specific 
+      tool for managing PM tasks. Through using it, we realized it should be portable
+      and reusable across all AI-assisted projects.
+      
+    vision: |
+      - One Bruce installation that can serve any project
+      - Configure via bruce.yaml for project-specific needs
+      - Import phase blueprints for design-first workflow  
+      - Accessible at bruce.honey-duo.com
+      - Simple enough to set up in minutes
+      
+    decisions_made: |
+      - Keep auth simple (single user - just for you)
+      - "Bruce" branding everywhere (not project-specific)
+      - Focus on portability over complex features
+      - Blueprint import is THE core workflow
+      - Config-driven, not code changes
+      
+    constraints: |
+      - Must work with existing system architecture
+      - Maintain backward compatibility where possible
+      - Keep it simple - no over-engineering
+      - Should work offline/locally
+
+tasks:
+  - id: bruce-branding
+    description: "Rebrand everything from HDW to Bruce"
+    output: "All UI/CLI showing Bruce branding, bruce.honey-duo.com"
+    why: "Can't be portable with hardcoded 'Honey Duo Wealth' everywhere"
+    connects_to: "Foundation for Bruce identity across all projects"
+    implementation_notes: |
+      - Replace "Honey Duo Wealth" → "Bruce"
+      - Update domain references to bruce.honey-duo.com
+      - Change emoji from 🍯 to 🤖
+      - Keep auth as-is (hdw/HoneyDuo2025!)
+    acceptance_criteria:
+      - "All UI pages show Bruce branding"
+      - "CLI help text shows Bruce"
+      - "No HDW references remain (except auth)"
+
+  - id: bruce-config
+    description: "Create bruce.yaml config system"
+    output: "Config loader that reads bruce.yaml for project settings"
+    depends_on: []
+    why: "Each project needs different settings without code changes"
+    connects_to: "Enables all other portable features to be configured"
+    implementation_notes: |
+      - Create config schema with project name, description, phases
+      - Load from ./bruce.yaml or ./.bruce/config.yaml
+      - Fall back to defaults if not found
+      - Config affects UI title, paths, etc.
+    example_config: |
+      project:
+        name: "Trading Bot Alpha"
+        description: "High-frequency trading system"
+        type: "trading-system"
+      bruce:
+        contexts_dir: "bruce_contexts"
+        blueprints_dir: "bruce_blueprints"
+    acceptance_criteria:
+      - "bruce.yaml is loaded on startup"
+      - "UI shows project name from config"
+      - "Paths use config values"
+
+  - id: bruce-init
+    description: "Create 'bruce init' command to set up Bruce in any project"
+    output: "CLI command that initializes Bruce in current directory"
+    depends_on: [bruce-config]
+    why: "Need dead-simple setup process for new projects"
+    connects_to: "Entry point for all Bruce usage"
+    implementation_notes: |
+      - Creates bruce.yaml from template
+      - Sets up directory structure
+      - Adds .gitignore entries
+      - Shows next steps
+    usage_example: |
+      $ cd my-new-project
+      $ bruce init
+      🤖 Bruce: Initializing project assistant...
+      ✓ Created bruce.yaml
+      ✓ Created directories: phases/, contexts/, blueprints/
+      ✓ Updated .gitignore
+      
+      Ready! Next steps:
+      1. Edit bruce.yaml with your project details
+      2. Run 'bruce ui' to start the web interface
+    acceptance_criteria:
+      - "bruce init creates all needed files/dirs"
+      - "Works in empty or existing project"
+      - "Clear success message with next steps"
+
+  - id: relative-paths
+    description: "Make all paths project-relative not hardcoded"
+    output: "Updated TaskManager and UI using relative paths"
+    depends_on: [bruce-config]
+    why: "Bruce must work from any directory, not just ~/hdw_setup"
+    connects_to: "Enables true portability across systems"
+    implementation_notes: |
+      - Remove Path.home() / "hdw_setup" hardcoding
+      - Use Path.cwd() or config-specified paths
+      - Test from different directories
+    key_changes: |
+      - PROJECT_ROOT = Path.cwd() not Path.home() / "hdw_setup"
+      - Paths from bruce.yaml not hardcoded
+      - Context/blueprint dirs configurable
+    acceptance_criteria:
+      - "Bruce works from any directory"
+      - "No hardcoded paths remain"
+      - "Can run bruce from project root"
+
+  - id: blueprint-import
+    description: "Build blueprint import feature for bulk task creation"
+    output: "Web UI tab and API endpoint for importing phase blueprints"
+    depends_on: [bruce-config, bruce-init]
+    why: "Design-first workflow - plan phase, import all tasks at once"
+    connects_to: "Core workflow for managing complex projects"
+    implementation_notes: |
+      - Add Import tab to Manage page
+      - Parse YAML blueprint format
+      - Create all tasks with connections
+      - Show preview before import
+      - Support why/connects_to fields
+    ui_flow: |
+      1. Go to Manage → Import Blueprint
+      2. Paste YAML or upload file
+      3. Preview shows all tasks to create
+      4. Click Import → creates all tasks
+      5. Success message with phase summary
+    acceptance_criteria:
+      - "Can import this exact blueprint"
+      - "All task fields are preserved"
+      - "Dependencies are set correctly"
+      - "Preview before import works"
+      - "Error handling for bad YAML"
+
+# Session continuity notes for Claude
+session_context:
+  last_discussion: |
+    - Decided to make Bruce portable before validation
+    - Bruce = project name going forward  
+    - Want blueprint import for design-first workflow
+    - Keep it simple, avoid over-engineering
+    - This is for YOUR projects, not public release
+    
+  current_focus: |
+    Making the system reusable across different projects while
+    maintaining all the PM features that make Claude handoffs seamless.
+    
+  watch_out_for: |
+    - Don't over-complicate the config system
+    - Maintain backward compatibility
+    - Keep auth simple (it's just for you)
+    - Focus on portability, not new features

@@ -1,0 +1,26 @@
+
+# Bruce Project Management
+contexts/
+docs/sessions/
+.task_context_*.md
+bruce_reports/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

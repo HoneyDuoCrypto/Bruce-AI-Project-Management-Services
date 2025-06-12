@@ -1,0 +1,55 @@
+phase:
+  id: 2
+  name: Make Bruce Portable
+  description: Transform HDW system into portable Bruce
+tasks:
+- id: bruce-branding
+  description: Rebrand everything from HDW to Bruce
+  status: completed
+  output: All UI/CLI showing Bruce branding
+  updated: '2025-06-11T13:09:05.130355'
+  notes:
+  - timestamp: '2025-06-11T11:35:56.780556'
+    note: Task started
+  - timestamp: '2025-06-11T13:09:05.130359'
+    note: 'Task committed: UI and all System Elements Updated Correctly '
+- id: bruce-config
+  description: Create bruce.yaml config system
+  status: completed
+  output: Config loader and bruce.yaml format
+  updated: '2025-06-11T17:07:08.511299'
+  notes:
+  - timestamp: '2025-06-11T13:11:11.409742'
+    note: Task started
+  - timestamp: '2025-06-11T17:07:08.511303'
+    note: 'Task committed: Complete task: bruce-config'
+- id: bruce-init
+  description: Create 'bruce init' command
+  status: completed
+  output: Command that sets up Bruce in any directory
+  updated: '2025-06-11T18:04:18.687374'
+  notes:
+  - timestamp: '2025-06-11T17:40:50.805956'
+    note: Task started
+  - timestamp: '2025-06-11T18:04:18.687378'
+    note: 'Task committed: Complete task: bruce-init'
+- id: relative-paths
+  description: Make all paths project-relative
+  status: completed
+  output: Updated path handling throughout
+  updated: '2025-06-11T20:33:32.816178'
+  notes:
+  - timestamp: '2025-06-11T19:15:53.764359'
+    note: Task started
+  - timestamp: '2025-06-11T20:33:32.816182'
+    note: 'Task committed: Complete task: relative-paths'
+- id: blueprint-import
+  description: Build blueprint and the build import feature
+  status: completed
+  output: UI and API for importing phase designs
+  updated: '2025-06-11T21:20:37.121023'
+  notes:
+  - timestamp: '2025-06-11T20:50:56.191095'
+    note: Task started
+  - timestamp: '2025-06-11T21:20:37.121027'
+    note: 'Task committed: Complete task: blueprint-import'

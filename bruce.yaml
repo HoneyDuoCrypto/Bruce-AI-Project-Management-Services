@@ -1,0 +1,27 @@
+# Bruce Project Configuration
+# Generated on bruce_project
+
+project:
+  name: "Bruce Project"
+  description: "AI-assisted project management"
+  type: "general"
+  author: "Bruce User"
+
+bruce:
+  # Directory structure (relative to project root)
+  contexts_dir: "contexts"
+  blueprints_dir: "docs/blueprints"
+  phases_dir: "phases"
+  reports_dir: "claude_reports"
+  
+  # Task configuration
+  tasks_file: "tasks.yaml"
+
+ui:
+  # Web interface customization
+  title: "Bruce Project"
+  theme_color: "#00d4aa"
+  domain: "bruce.honey-duo.com"
+  port: 5000
+
+# Bruce Version: 1.0-portable

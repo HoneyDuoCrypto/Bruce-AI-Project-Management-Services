@@ -1,0 +1,110 @@
+phase:
+  id: 1
+  name: Project Management System
+  description: Complete PM system for seamless Claude handoffs
+tasks:
+- id: pm-multi-phase
+  description: Update task manager to load from phases/*.yml files
+  context:
+  - cli/hdw-task.py
+  - tasks.yaml
+  output: src/task_manager.py with multi-file support
+  tests: tests/test_multi_phase.py
+  status: completed
+  notes:
+  - note: Task started
+    timestamp: '2025-06-10T00:34:19.524514'
+  - note: Task started
+    timestamp: '2025-06-10T00:50:04.765231'
+  - timestamp: '2025-06-10T01:01:07.409026'
+    note: 'Task committed: Implemented multi-phase task management with tests'
+  - timestamp: '2025-06-10T01:02:29.447865'
+    note: 'Task committed: Implemented multi-phase task management with tests'
+  updated: '2025-06-10T01:02:29.447860'
+  acceptance_criteria:
+  - Loads tasks from phases/*.yml
+  - Maintains backward compatibility with tasks.yaml
+  - Organizes context files by phase
+- id: pm-phase-progress
+  description: Add phase progress calculation and display
+  context:
+  - cli/hdw-task.py#cmd_status
+  output: Progress tracking per phase
+  tests: tests/test_phase_progress.py
+  status: completed
+  updated: '2025-06-10T01:49:52.509056'
+  notes:
+  - timestamp: '2025-06-10T01:46:45.941877'
+    note: Task started
+  - timestamp: '2025-06-10T01:49:52.509060'
+    note: 'Task committed: Completed Phase Screen On UI'
+- id: pm-blueprint-gen
+  description: Auto-generate blueprint from completed tasks
+  context:
+  - docs/blueprints/phase1_pm_system.md
+  output: src/blueprint_generator.py
+  tests: tests/test_blueprint_gen.py
+  status: completed
+  updated: '2025-06-10T02:22:14.011496'
+  notes:
+  - timestamp: '2025-06-10T01:52:13.837506'
+    note: Task started
+  - timestamp: '2025-06-10T02:22:14.011500'
+    note: 'Task committed: Complete task: pm-blueprint-gen'
+- id: pm-session-handoff
+  description: Generate comprehensive handoff for new sessions
+  context:
+  - cli/hdw-task.py#generate_chatgpt_report
+  output: src/session_handoff.py
+  tests: tests/test_session_handoff.py
+  status: completed
+  updated: '2025-06-10T03:16:49.735070'
+  notes:
+  - timestamp: '2025-06-10T03:16:49.735074'
+    note: 'completed: This has already been completed but in a different way '
+- id: pm-web-phases
+  description: Update web UI to show phase-based progress
+  context:
+  - hdw_complete.py
+  output: hdw_complete.py with phase views
+  tests: tests/test_web_phases.py
+  status: completed
+  updated: '2025-06-10T01:31:35.173644'
+  notes:
+  - timestamp: '2025-06-10T01:04:51.425553'
+    note: Task started
+  - timestamp: '2025-06-10T01:18:41.035855'
+    note: 'Blocked: UI Bugs'
+  - timestamp: '2025-06-10T01:24:12.344303'
+    note: 'Blocked: Testing if block reason saves'
+  - timestamp: '2025-06-10T01:31:35.173648'
+    note: 'Task committed: Implemented phase support in web UI - shows phase progress,
+      grouped tasks, and block reasons'
+- id: pm-decision-tracking
+  description: Add 'why' tracking to task completion
+  context:
+  - hdw_complete.py#complete_task
+  - cli/hdw-task.py#cmd_commit
+  output: Enhanced completion with decision capture
+  tests: tests/test_decision_tracking.py
+  status: completed
+  updated: '2025-06-10T04:23:36.563159'
+  notes:
+  - timestamp: '2025-06-10T03:17:06.822272'
+    note: Task started
+  - timestamp: '2025-06-10T04:23:36.563163'
+    note: 'Task committed: Task completed '
+- id: pm-context-enhance
+  description: Include related tasks and decisions in context
+  context:
+  - cli/hdw-task.py#get_context
+  output: Enhanced context generator
+  tests: tests/test_context_enhance.py
+  status: completed
+  updated: '2025-06-10T04:20:26.547430'
+  notes:
+  - timestamp: '2025-06-10T04:15:01.324891'
+    note: Task started
+  - timestamp: '2025-06-10T04:20:26.547434'
+    note: 'Task committed: Implemented enhanced context generator with related tasks,
+      architecture diagrams, and decision history'

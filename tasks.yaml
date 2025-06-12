@@ -1,0 +1,37 @@
+tasks:
+- context:
+  - docs/vision.md
+  description: Initialize project directories and placeholder files
+  id: scaffold-repo
+  output: 'Empty dirs: docs/, src/, cli/, pipelines/, infra/, tests/'
+  status: completed
+  tests: null
+
+- context:
+  - cli/README.md
+  description: 'Implement CLI commands: start, status, commit-hook integration'
+  id: cli-prototype
+  notes:
+  - note: Task started
+    timestamp: '2025-06-09T20:09:05.456891'
+  - note: 'Task committed: CLI prototype implemented and tested'
+    timestamp: '2025-06-09T20:10:10.751927'
+  output: Executable hdw-task script with basic command parsing
+  status: completed
+  tests: tests/test_cli.py
+  updated: '2025-06-09T20:10:10.751923'
+
+- context: []
+  description: Create a simple hello world function
+  id: hello-world
+  notes:
+  - note: Task started
+    timestamp: '2025-06-09T20:59:34.586603'
+  - note: 'Task committed: Complete task: hello-world'
+    timestamp: '2025-06-09T21:00:02.484114'
+  - note: 'Task committed: Complete task: hello-world'
+    timestamp: '2025-06-09T21:09:42.073500'
+  output: hello_world() function in src/utils.py
+  status: completed
+  tests: tests/test_utils.py
+  updated: '2025-06-09T21:09:42.073495'
