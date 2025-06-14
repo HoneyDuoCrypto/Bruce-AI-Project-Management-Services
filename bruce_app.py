@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Bruce Complete Management Interface - Modular Version
+Bruce Complete Management Interface - Enhanced Multi-Project Version
+Adds project selection and dynamic TaskManager initialization
 Enhanced with multi-phase support, progress tracking, Blueprint Generator UI, Enhanced Context,
 Dynamic Task/Phase Management UI, Config System Integration, AND Blueprint Import Feature
 Refactored into modular templates for easier maintenance and Phase 3 testing
@@ -15,6 +16,10 @@ import sys
 from pathlib import Path
 import datetime
 import json
+import glob
+from functools import lru_cache
+from flask import session
+from typing import List, Dict, Any
 
 # Add src to path to import TaskManager and ConfigManager
 sys.path.insert(0, str(Path(__file__).parent))
@@ -28,6 +33,122 @@ VALID_USERS = {
     'hdw': 'HoneyDuo2025!',
     'admin': 'AdminPass123!'
 }
+
+# Session configuration for Flask app
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=7)
+
+PROJECT_ROOT = Path(__file__).parent
+
+def discover_bruce_projects(search_root: Path = None) -> List[Dict[str, Any]]:
+    """Discover all Bruce projects in the filesystem"""
+    if search_root is None:
+        # Search in parent directories and common project locations
+        search_roots = [
+            Path.home() / "Projects",
+            Path.home() / "Documents",
+            Path.home(),
+            Path(__file__).parent.parent,
+            Path(__file__).parent.parent.parent
+        ]
+    else:
+        search_roots = [search_root]
+    
+    projects = []
+    seen_paths = set()
+    
+    for root in search_roots:
+        if not root.exists():
+            continue
+            
+        try:
+            # Look for bruce.yaml files
+            for bruce_config in root.rglob("bruce.yaml"):
+                project_path = bruce_config.parent
+                
+                # Avoid duplicates
+                if str(project_path) in seen_paths:
+                    continue
+                seen_paths.add(str(project_path))
+                
+                try:
+                    with open(bruce_config, 'r') as f:
+                        config = yaml.safe_load(f)
+                    
+                    project_info = {
+                        "path": str(project_path),
+                        "name": config.get("project", {}).get("name", project_path.name),
+                        "description": config.get("project", {}).get("description", ""),
+                        "type": config.get("project", {}).get("type", "unknown"),
+                        "config_file": str(bruce_config),
+                        "is_current": str(project_path) == str(PROJECT_ROOT),
+                        "last_modified": datetime.datetime.fromtimestamp(
+                            project_path.stat().st_mtime
+                        ).isoformat()
+                    }
+                    
+                    # Check if project is accessible
+                    try:
+                        test_tm = TaskManager(project_path)
+                        project_info["accessible"] = True
+                        task_data = test_tm.load_tasks()
+                        project_info["task_count"] = len(task_data.get("tasks", []))
+                    except Exception:
+                        project_info["accessible"] = False
+                        project_info["task_count"] = 0
+                    
+                    projects.append(project_info)
+                    
+                except Exception as e:
+                    # Add project even if config is invalid
+                    projects.append({
+                        "path": str(project_path),
+                        "name": project_path.name,
+                        "description": "Configuration error",
+                        "config_file": str(bruce_config),
+                        "is_current": str(project_path) == str(PROJECT_ROOT),
+                        "accessible": False,
+                        "error": str(e)
+                    })
+        
+        except (OSError, PermissionError):
+            continue
+    
+    # Sort by name, current project first
+    projects.sort(key=lambda p: (not p.get("is_current", False), p.get("name", "")))
+    return projects
+
+def get_selected_project_path() -> Path:
+    """Get the currently selected project path from session"""
+    if 'selected_project' in session:
+        selected_path = Path(session['selected_project'])
+        if selected_path.exists() and (selected_path / "bruce.yaml").exists():
+            return selected_path
+    
+    # Default to current project
+    return PROJECT_ROOT
+
+def get_task_manager_for_project(project_path: Path = None) -> TaskManager:
+    """Get TaskManager instance for specified project"""
+    if project_path is None:
+        project_path = get_selected_project_path()
+    
+    return TaskManager(project_path)
+
+@lru_cache(maxsize=10)
+def get_cached_project_info(project_path: str) -> Dict[str, Any]:
+    """Get cached project information to improve performance"""
+    try:
+        tm = TaskManager(Path(project_path))
+        return tm.get_project_info()
+    except Exception as e:
+        return {
+            "name": Path(project_path).name,
+            "error": str(e)
+        }
+
+def get_current_task_manager():
+    """Get TaskManager for currently selected project"""
+    return get_task_manager_for_project()
 
 def check_auth(username, password):
     return username in VALID_USERS and VALID_USERS[username] == password
@@ -48,11 +169,12 @@ def requires_auth(f):
         return f(*args, **kwargs)
     return decorated
 
-PROJECT_ROOT = Path(__file__).parent
-
-# Initialize TaskManager with Config
-task_manager = TaskManager(PROJECT_ROOT)
-config = task_manager.config  # Get config from TaskManager
+# Initialize session if not present
+@app.before_request
+def init_session():
+    if 'selected_project' not in session:
+        session['selected_project'] = str(PROJECT_ROOT)
+        session.permanent = True
 
 def run_cli_command(command):
     """Run CLI command and return result"""
@@ -64,17 +186,24 @@ def run_cli_command(command):
         return {"success": False, "output": "", "error": str(e)}
 
 def get_template_context():
-    """Get common template context for all pages"""
-    if config:
-        project_name = config.project.name
-        theme_color = config.ui.theme_color
-        domain = config.ui.domain
-        page_title = config.ui.title or project_name
+    """Get common template context for all pages with multi-project support"""
+    # Get current project information
+    current_project_path = get_selected_project_path()
+    tm = get_task_manager_for_project(current_project_path)
+    
+    if tm.config:
+        project_name = tm.config.project.name
+        theme_color = tm.config.ui.theme_color
+        domain = tm.config.ui.domain
+        page_title = tm.config.ui.title or project_name
     else:
-        project_name = "Bruce"
+        project_name = current_project_path.name
         theme_color = "#00d4aa"
         domain = "bruce.honey-duo.com"
-        page_title = "Bruce"
+        page_title = project_name
+    
+    # Discover available projects
+    available_projects = discover_bruce_projects()
     
     return {
         'project_name': project_name,
@@ -82,7 +211,10 @@ def get_template_context():
         'theme_color_light': theme_color + "dd" if len(theme_color) == 7 else theme_color,
         'domain': domain,
         'page_title': page_title,
-        'current_time': datetime.datetime.now().strftime('%A, %B %d, %Y at %I:%M %p')
+        'current_time': datetime.datetime.now().strftime('%A, %B %d, %Y at %I:%M %p'),
+        'current_project_path': str(current_project_path),
+        'available_projects': available_projects,
+        'multi_project_enabled': True
     }
 
 # ROUTE HANDLERS
@@ -91,6 +223,8 @@ def get_template_context():
 @requires_auth
 def dashboard():
     """Dashboard page with project stats, phase progress, and recent activity"""
+    task_manager = get_current_task_manager()  # Dynamic task manager
+    
     tasks_data = task_manager.load_tasks()
     tasks = tasks_data.get("tasks", [])
     
@@ -135,6 +269,8 @@ def dashboard():
 @requires_auth
 def tasks():
     """Tasks management page with enhanced context and phase organization"""
+    task_manager = get_current_task_manager()  # Dynamic task manager
+    
     tasks_data = task_manager.load_tasks()
     tasks = tasks_data.get("tasks", [])
     
@@ -179,6 +315,8 @@ def tasks():
 @requires_auth
 def phases():
     """Phases overview page with detailed progress tracking"""
+    task_manager = get_current_task_manager()  # Dynamic task manager
+    
     tasks_data = task_manager.load_tasks()
     phase_progress = task_manager.get_phase_progress()
     
@@ -196,6 +334,8 @@ def phases():
 @requires_auth
 def manage():
     """Task and phase management page with blueprint import"""
+    task_manager = get_current_task_manager()  # Dynamic task manager
+    
     tasks_data = task_manager.load_tasks()
     phase_progress = task_manager.get_phase_progress()
     
@@ -223,6 +363,8 @@ def manage():
 @requires_auth
 def generator():
     """Blueprint generator page for comprehensive documentation"""
+    task_manager = get_current_task_manager()  # Dynamic task manager
+    
     phase_progress = task_manager.get_phase_progress()
     selected_phase = request.args.get('phase', '1')
     
@@ -240,6 +382,8 @@ def generator():
 @requires_auth
 def reports():
     """Reports page for Claude handoff generation"""
+    task_manager = get_current_task_manager()  # Dynamic task manager
+    
     tasks_data = task_manager.load_tasks()
     tasks = tasks_data.get("tasks", [])
     reportable_tasks = [t for t in tasks if t.get('status') in ['completed', 'blocked', 'in-progress']]
@@ -267,13 +411,15 @@ def reports():
 @requires_auth
 def config_info():
     """Configuration page showing bruce.yaml settings"""
+    task_manager = get_current_task_manager()  # Dynamic task manager
+    
     info = task_manager.get_project_info()
     
     template_context = get_template_context()
     template_context.update({
         'active_page': 'config',
         'project_info': info,
-        'task_manager_config': config
+        'task_manager_config': task_manager.config
     })
     
     from templates.config import get_config_template
@@ -292,14 +438,157 @@ def help_page():
     return render_template_string(get_help_template(), **template_context)
 
 # =============================================================================
-# API ENDPOINTS - ALL PRESERVED FROM ORIGINAL
+# API ENDPOINTS - Enhanced with Multi-Project Support
 # =============================================================================
+
+@app.route('/api/discover_projects')
+@requires_auth
+def api_discover_projects():
+    """API endpoint to discover Bruce projects"""
+    try:
+        projects = discover_bruce_projects()
+        return jsonify({
+            "success": True,
+            "projects": projects,
+            "current_project": str(get_selected_project_path())
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/switch_project', methods=['POST'])
+@requires_auth
+def api_switch_project():
+    """API endpoint to switch to a different project"""
+    try:
+        data = request.json
+        project_path = data.get('project_path')
+        
+        if not project_path:
+            return jsonify({"success": False, "error": "No project path provided"})
+        
+        project_path = Path(project_path)
+        
+        # Validate project
+        if not project_path.exists():
+            return jsonify({"success": False, "error": "Project path does not exist"})
+        
+        bruce_config = project_path / "bruce.yaml"
+        if not bruce_config.exists():
+            return jsonify({"success": False, "error": "Not a valid Bruce project (no bruce.yaml)"})
+        
+        # Test TaskManager initialization
+        try:
+            test_tm = TaskManager(project_path)
+            project_info = test_tm.get_project_info()
+        except Exception as e:
+            return jsonify({"success": False, "error": f"Failed to initialize project: {str(e)}"})
+        
+        # Store in session
+        session['selected_project'] = str(project_path)
+        session.permanent = True
+        
+        # Clear cache
+        get_cached_project_info.cache_clear()
+        
+        return jsonify({
+            "success": True,
+            "project_info": project_info,
+            "message": f"Switched to project: {project_info['name']}"
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/current_project_info')
+@requires_auth
+def api_current_project_info():
+    """Get information about the currently selected project"""
+    try:
+        project_path = get_selected_project_path()
+        tm = get_task_manager_for_project(project_path)
+        
+        project_info = tm.get_project_info()
+        phase_progress = tm.get_phase_progress()
+        
+        # Add extra context
+        project_info['path'] = str(project_path)
+        project_info['total_phases'] = len(phase_progress)
+        
+        total_tasks = sum(p['total'] for p in phase_progress.values())
+        total_completed = sum(p['completed'] for p in phase_progress.values())
+        project_info['total_tasks'] = total_tasks
+        project_info['completed_tasks'] = total_completed
+        project_info['overall_progress'] = (total_completed / total_tasks * 100) if total_tasks > 0 else 0
+        
+        return jsonify({
+            "success": True,
+            "project_info": project_info,
+            "phase_progress": phase_progress
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/project_health_check')
+@requires_auth
+def project_health_check():
+    """Check health of current project"""
+    try:
+        task_manager = get_current_task_manager()
+        project_path = get_selected_project_path()
+        
+        # Basic health checks
+        health_status = {
+            "project_accessible": True,
+            "config_loaded": task_manager.config is not None,
+            "tasks_loadable": False,
+            "directories_exist": False,
+            "git_repo": False
+        }
+        
+        # Check if tasks can be loaded
+        try:
+            tasks_data = task_manager.load_tasks()
+            health_status["tasks_loadable"] = True
+            health_status["task_count"] = len(tasks_data.get("tasks", []))
+        except Exception:
+            health_status["task_count"] = 0
+        
+        # Check if required directories exist
+        required_dirs = ["phases", "contexts", "docs"]
+        existing_dirs = [d for d in required_dirs if (project_path / d).exists()]
+        health_status["directories_exist"] = len(existing_dirs) == len(required_dirs)
+        health_status["existing_directories"] = existing_dirs
+        
+        # Check git status
+        try:
+            import subprocess
+            result = subprocess.run(["git", "rev-parse", "--git-dir"], 
+                                  capture_output=True, cwd=project_path)
+            health_status["git_repo"] = result.returncode == 0
+        except Exception:
+            pass
+        
+        return jsonify({
+            "success": True,
+            "health_status": health_status,
+            "project_path": str(project_path)
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "health_status": {"project_accessible": False}
+        })
 
 @app.route('/api/create_config', methods=['POST'])
 @requires_auth
 def create_config():
     """Create default config file"""
     try:
+        task_manager = get_current_task_manager()
+        config = task_manager.config
         if config:
             config_file = config.create_default_config()
             return jsonify({"success": True, "config_file": str(config_file)})
@@ -313,6 +602,8 @@ def create_config():
 def validate_config():
     """Validate current configuration"""
     try:
+        task_manager = get_current_task_manager()
+        config = task_manager.config
         if config:
             is_valid = config.validate_config()
             return jsonify({"valid": is_valid})
@@ -465,6 +756,7 @@ def preview_blueprint():
             return jsonify({"success": False, "error": "Duplicate task IDs found in blueprint"})
         
         # Check if phase ID already exists
+        task_manager = get_current_task_manager()
         existing_tasks = task_manager.load_tasks()
         existing_phases = existing_tasks.get('phases', {})
         
@@ -511,6 +803,7 @@ def preview_blueprint():
 def import_blueprint():
     """Import blueprint and create all tasks"""
     try:
+        task_manager = get_current_task_manager()
         data = request.json
         yaml_content = data.get('yaml_content', '')
         
@@ -602,19 +895,23 @@ def start_task():
     if not task_id:
         return jsonify({"success": False, "error": "No task ID provided"})
     
-    if use_enhanced:
-        result = run_cli_command(f"start {task_id}")
-    else:
-        result = run_cli_command(f"start {task_id} --basic")
-    
-    result['enhanced'] = use_enhanced
-    return jsonify(result)
+    try:
+        task_manager = get_current_task_manager()
+        task_manager.cmd_start(task_id, enhanced=use_enhanced)
+        return jsonify({
+            "success": True, 
+            "enhanced": use_enhanced,
+            "message": f"Task {task_id} started successfully"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 @app.route('/api/preview_context/<task_id>')
 @requires_auth
 def preview_context(task_id):
     """Preview the enhanced context that would be generated"""
     try:
+        task_manager = get_current_task_manager()
         use_enhanced = request.args.get('enhanced', 'true').lower() == 'true'
         
         if use_enhanced:
@@ -651,6 +948,7 @@ def preview_context(task_id):
 def related_tasks(task_id):
     """Get related tasks for enhanced context"""
     try:
+        task_manager = get_current_task_manager()
         related = task_manager.find_related_tasks(task_id)
         
         # Format for display
@@ -713,7 +1011,7 @@ def generate_blueprint():
     
     try:
         from src.blueprint_generator import PhaseBlueprintGenerator
-        generator = PhaseBlueprintGenerator(PROJECT_ROOT)
+        generator = PhaseBlueprintGenerator(get_selected_project_path())
         
         if blueprint_type == 'phase':
             content = generator.generate_comprehensive_phase_blueprint(phase_id)
@@ -723,7 +1021,7 @@ def generate_blueprint():
             content = generator.generate_session_handoff()
             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"session_{timestamp}.md"
-            filepath = PROJECT_ROOT / "docs" / "sessions" / filename
+            filepath = get_selected_project_path() / "docs" / "sessions" / filename
             filepath.parent.mkdir(parents=True, exist_ok=True)
             with open(filepath, 'w') as f:
                 f.write(content)
@@ -732,7 +1030,7 @@ def generate_blueprint():
             content = generator.generate_system_architecture_blueprint()
             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M')
             filename = f"architecture_{timestamp}.md"
-            filepath = PROJECT_ROOT / "docs" / "blueprints" / filename
+            filepath = get_selected_project_path() / "docs" / "blueprints" / filename
             filepath.parent.mkdir(parents=True, exist_ok=True)
             with open(filepath, 'w') as f:
                 f.write(content)
@@ -760,6 +1058,7 @@ def generate_report():
     if not task_id:
         return jsonify({"success": False, "error": "No task ID provided"})
     
+    task_manager = get_current_task_manager()
     tasks_data = task_manager.load_tasks()
     task = next((t for t in tasks_data.get("tasks", []) if t['id'] == task_id), None)
     if not task:
@@ -773,7 +1072,7 @@ def generate_report():
     try:
         result = subprocess.run(
             ["git", "show", "--name-only", "--pretty=format:", "HEAD"],
-            capture_output=True, text=True, cwd=PROJECT_ROOT
+            capture_output=True, text=True, cwd=get_selected_project_path()
         )
         recent_files = [f.strip() for f in result.stdout.strip().split('\n') if f.strip()]
         artifacts = ", ".join(recent_files) if recent_files else task.get("output", "No artifacts specified")
@@ -824,27 +1123,38 @@ Next Steps: Continue with remaining Phase {task.get('phase', 0)} tasks or begin 
 @app.route('/health')
 def health_check():
     """Health check endpoint for system monitoring"""
+    task_manager = get_current_task_manager()
     project_info = task_manager.get_project_info()
     return jsonify({
         "status": "healthy", 
         "project": project_info['name'],
-        "domain": config.ui.domain if config else "bruce.honey-duo.com", 
-        "version": "2.0-modular-complete",
+        "domain": task_manager.config.ui.domain if task_manager.config else "bruce.honey-duo.com", 
+        "version": "2.0-multi-project-enhanced",
         "config_loaded": project_info['config_loaded'],
         "total_tasks": len(task_manager.load_tasks().get("tasks", [])),
-        "architecture": "modular-templates"
+        "architecture": "modular-templates-multi-project"
     })
 
 if __name__ == "__main__":
-    project_info = task_manager.get_project_info()
+    # Get initial task manager for startup info
+    initial_task_manager = TaskManager(PROJECT_ROOT)
+    project_info = initial_task_manager.get_project_info()
+    config = initial_task_manager.config
     domain = config.ui.domain if config else "hdw.honey-duo.com"
     port = config.ui.port if config else 8000
     
-    print("🌐 Bruce Complete Management Interface - Fully Modular Version")
+    print("🌐 Bruce Complete Management Interface - Multi-Project Enhanced")
     print(f"🔐 Access: https://{domain}")
     print(f"🔑 Login: hdw / HoneyDuo2025!")
     print(f"📋 Project: {project_info['name']}")
     print(f"⚙️ Config: {'✅ Loaded' if project_info['config_loaded'] else '📋 Using defaults'}")
+    print("")
+    print("🎯 MULTI-PROJECT FEATURES:")
+    print("  🔍 Project Discovery - Automatic detection of Bruce projects")
+    print("  🔄 Dynamic Switching - Switch between projects in session")
+    print("  📊 Project Health Check - Validate project accessibility")
+    print("  🎨 Per-Project Theming - Colors and branding from each project's config")
+    print("  ⚙️ Isolated Task Management - Each project maintains its own task state")
     print("")
     print("💡 COMPLETE Features Preserved:")
     print("  ⚙️ Config System - bruce.yaml configuration support")  
@@ -854,15 +1164,8 @@ if __name__ == "__main__":
     print("  🏗️ Blueprint Generator - Comprehensive documentation")
     print("  ⚙️ Task/Phase Management - Add/edit via web interface")
     print("  📥 Blueprint Import - Design-first workflow with YAML blueprints")
-    print("  🔄 Multi-Project Support - Ready for Phase 3 testing")
     print("  📊 Full API Coverage - All original endpoints preserved")
     print("")
-    print("🎯 MODULAR ARCHITECTURE:")
-    print("  📂 templates/ - Individual page templates")
-    print("  🔧 Easier maintenance for Phase 3 stress testing")
-    print("  🧪 Ready for concurrent user testing")
-    print("  📈 Prepared for multi-project isolation testing")
-    print("")
-    print("🚀 Ready for Phase 3 Testing & Optimization!")
+    print("🚀 Ready for Phase 3 Multi-Project Testing!")
     
-    app.run(host='0.0.0.0', port=8000, debug=True, threaded=True)
+    app.run(host='0.0.0.0', port=port, debug=True, threaded=True)

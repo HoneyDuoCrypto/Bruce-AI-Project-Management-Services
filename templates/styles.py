@@ -1,6 +1,7 @@
 """
 Shared CSS styles for all Bruce templates
 Contains all styling and responsive design from original system
+UPDATED: Step 3 - Added project selector styles for multi-project support
 """
 
 def get_shared_styles():
@@ -34,6 +35,30 @@ def get_shared_styles():
                 font-size: 14px;
                 margin-bottom: 20px;
             }
+            
+            /* PROJECT SELECTOR STYLES - STEP 3 ADDITION */
+            .project-selector {
+                min-width: 300px;
+            }
+            
+            .project-selector select {
+                width: 100%;
+                padding: 8px;
+                background: #333;
+                color: #fff;
+                border: 1px solid {{ theme_color }};
+                border-radius: 6px;
+                font-size: 14px;
+            }
+            
+            .project-selector label {
+                color: {{ theme_color }};
+                font-weight: bold;
+                display: block;
+                margin-bottom: 5px;
+                font-size: 14px;
+            }
+            
             .nav { 
                 display: flex; 
                 justify-content: center; 
@@ -429,5 +454,6 @@ def get_shared_styles():
                 .form-row { grid-template-columns: 1fr; }
                 .form-row-thirds { grid-template-columns: 1fr; }
                 .management-tabs { flex-wrap: wrap; }
+                .project-selector { min-width: 200px; }
             }
     """

@@ -1,7 +1,3 @@
-"""
-Help template - Complete implementation with blueprint import documentation
-"""
-
 def get_help_template():
     """Returns the complete help HTML template"""
     
@@ -62,8 +58,26 @@ def get_help_template():
     <body>
         <div class="header">
             <div class="container">
-                <h1>🤖 {{ project_name }}</h1>
-                <div class="domain-badge">🌐 AI Project Assistant • {{ domain }}</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div>
+                        <h1>🤖 {{ project_name }}</h1>
+                        <div class="domain-badge">🌐 AI Project Assistant • {{ domain }}</div>
+                    </div>
+                    {% if multi_project_enabled %}
+                    <div class="project-selector">
+                        <label for="project-select">Project:</label>
+                        <select id="project-select" onchange="switchProject()">
+                            {% for project in available_projects %}
+                                {% set selected = 'selected' if project.is_current else '' %}
+                                {% set accessible_icon = '✅' if project.get('accessible', True) else '❌' %}
+                                <option value="{{ project.path }}" {{ selected }}>
+                                    {{ accessible_icon }} {{ project.name }} ({{ project.get('task_count', 0) }} tasks)
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                </div>
                 <div class="nav">
                     <a href="/">📊 Dashboard</a>
                     <a href="/tasks">📋 Tasks</a>
@@ -73,27 +87,41 @@ def get_help_template():
                     <a href="/reports">📈 Reports</a>
                     <a href="/config">⚙️ Config</a>
                     <a href="/help" class="active">❓ Help</a>
+                    {% if multi_project_enabled %}
+                    <button onclick="discoverProjects()" class="btn btn-info" style="margin-left: 15px;">🔍 Discover</button>
+                    {% endif %}
                 </div>
             </div>
         </div>
         
         <div class="container">
             <div class="content-section">
-                <h2 class="section-title">📖 Bruce User Guide - Complete with Blueprint Import</h2>
+                <h2 class="section-title">📖 Bruce User Guide - Complete with Multi-Project Support</h2>
                 
                 <div class="help-section">
-                    <h3 style="color: {{ theme_color }}; margin-bottom: 15px;">🆕 What's New: Blueprint Import</h3>
+                    <h3 style="color: {{ theme_color }}; margin-bottom: 15px;">🆕 What's New: Multi-Project Management</h3>
                     <ul style="margin-left: 20px; line-height: 1.8; color: #ccc;">
-                        <li><strong>Design-First Workflow:</strong> Plan entire phases before implementation</li>
-                        <li><strong>Bulk Task Creation:</strong> Import multiple related tasks at once</li>
-                        <li><strong>YAML Blueprint Format:</strong> Structured, readable phase definitions</li>
-                        <li><strong>Preview Before Import:</strong> See exactly what will be created</li>
-                        <li><strong>Dependency Mapping:</strong> Automatic task relationship setup</li>
+                        <li><strong>Project Switching:</strong> Switch between multiple Bruce projects seamlessly</li>
+                        <li><strong>Project Discovery:</strong> Automatically find all Bruce projects on your system</li>
+                        <li><strong>Project Health Status:</strong> See which projects are accessible and their task counts</li>
+                        <li><strong>Session Management:</strong> Maintain separate states for each project</li>
+                        <li><strong>Blueprint Import:</strong> Import structured phase definitions across projects</li>
                     </ul>
                 </div>
                 
                 <div class="help-section">
-                    <h3 style="color: {{ theme_color }}; margin-bottom: 15px;">📥 How to Use Blueprint Import</h3>
+                    <h3 style="color: {{ theme_color }}; margin-bottom: 15px;">🔄 How to Use Multi-Project Features</h3>
+                    <ol style="margin-left: 20px; line-height: 2; color: #ccc;">
+                        <li><strong>Switch Projects:</strong> Use the project dropdown in the header to switch between projects</li>
+                        <li><strong>Discover Projects:</strong> Click "🔍 Discover" to scan for new Bruce projects</li>
+                        <li><strong>Project Status:</strong> ✅ indicates accessible projects, ❌ indicates issues</li>
+                        <li><strong>Task Counts:</strong> See how many tasks each project has in the dropdown</li>
+                        <li><strong>Independent Sessions:</strong> Each project maintains its own state and progress</li>
+                    </ol>
+                </div>
+                
+                <div class="help-section">
+                    <h3 style="color: {{ theme_color }}; margin-bottom: 15px;">📥 Blueprint Import System</h3>
                     <ol style="margin-left: 20px; line-height: 2; color: #ccc;">
                         <li><strong>Go to Manage Page:</strong> Click the "Import Blueprint" tab</li>
                         <li><strong>Choose Source:</strong> Paste YAML content or upload a .yml file</li>
@@ -133,86 +161,77 @@ tasks:
                 </div>
                 
                 <div class="help-section">
-                    <h3 style="color: {{ theme_color }}; margin-bottom: 15px;">🎯 Enhanced Workflow with Blueprint Import</h3>
+                    <h3 style="color: {{ theme_color }}; margin-bottom: 15px;">🎯 Enhanced Multi-Project Workflow</h3>
                     <div class="workflow-step">
-                        <h4>1. Plan Phase</h4>
-                        <p>Design entire phase structure in YAML format. Think through all tasks, dependencies, and acceptance criteria before starting implementation.</p>
+                        <h4>1. Organize Projects</h4>
+                        <p>Keep separate Bruce projects for different work streams. Each project maintains its own tasks, phases, and progress tracking.</p>
                     </div>
                     <div class="workflow-step">
-                        <h4>2. Import Tasks</h4>
-                        <p>Use blueprint import to create all tasks instantly. Preview functionality lets you see exactly what will be created.</p>
+                        <h4>2. Switch Contexts</h4>
+                        <p>Use the project selector to seamlessly switch between projects. Your progress and state are maintained separately for each project.</p>
                     </div>
                     <div class="workflow-step">
-                        <h4>3. Manage Dependencies</h4>
-                        <p>Tasks automatically linked based on blueprint dependencies. No manual dependency setup required.</p>
+                        <h4>3. Import Blueprints</h4>
+                        <p>Design phase structures in YAML and import them into any project. Perfect for reusing patterns across similar work.</p>
                     </div>
                     <div class="workflow-step">
-                        <h4>4. Start Development</h4>
-                        <p>Begin work with enhanced context and clear structure. All tasks have detailed descriptions and acceptance criteria.</p>
+                        <h4>4. Monitor Health</h4>
+                        <p>Check project health status indicators to ensure all projects are accessible and functioning properly.</p>
                     </div>
                     <div class="workflow-step">
-                        <h4>5. Track Progress</h4>
-                        <p>Monitor phase completion with visual progress bars. Generate blueprints and handoff reports as you progress.</p>
+                        <h4>5. Generate Reports</h4>
+                        <p>Create handoff reports and blueprints specific to each project for effective collaboration.</p>
                     </div>
                 </div>
                 
                 <div class="tip-box">
-                    <h4>🎯 Pro Tip: Blueprint Templates</h4>
-                    <p>Create blueprint templates for common project patterns! Save YAML blueprints for "Web App Setup", "API Development", "Database Design" phases and reuse them across projects. This makes starting new phases incredibly fast.</p>
+                    <h4>🎯 Pro Tip: Project Templates</h4>
+                    <p>Create template projects with common phase structures and blueprint files. When starting new work, copy a template project and import your standard blueprints to get up and running quickly.</p>
                 </div>
                 
                 <div class="tip-box">
-                    <h4>💡 Pro Tip: Data Migration Projects</h4>
-                    <p>Perfect for your data organization work! Create blueprints for common data migration patterns: "Extract Phase", "Transform Phase", "Load Phase". Each blueprint can include tasks for validation, cleanup, and verification steps.</p>
-                </div>
-                
-                <div class="help-section">
-                    <h3 style="color: {{ theme_color }}; margin-bottom: 15px;">🔧 Phase 3 Testing Features</h3>
-                    <ul style="margin-left: 20px; line-height: 1.8; color: #ccc;">
-                        <li><strong>Stress Testing:</strong> Modular UI makes it easy to test with 50+ tasks</li>
-                        <li><strong>Multi-Project Support:</strong> Config-driven themes and settings per project</li>
-                        <li><strong>Concurrent Users:</strong> Template-based architecture supports multiple sessions</li>
-                        <li><strong>Data Isolation:</strong> Clean API boundaries prevent data bleeding</li>
-                        <li><strong>Performance Monitoring:</strong> Health check endpoints for system monitoring</li>
-                    </ul>
+                    <h4>💡 Pro Tip: Data Organization Projects</h4>
+                    <p>Perfect for your data organization work! Create separate projects for different data sources or transformation workflows. Use blueprints for common patterns like "Extract → Transform → Load" phases.</p>
                 </div>
                 
                 <div class="help-section">
                     <h3 style="color: {{ theme_color }}; margin-bottom: 15px;">🚀 Quick Reference Commands</h3>
                     <div class="code-block">
-# CLI Commands
+# CLI Commands (work within current project directory)
 bruce init "My Project"           # Initialize new Bruce project
-bruce status                      # Show project status
-bruce list                        # List all tasks
+bruce status                      # Show current project status
+bruce list                        # List all tasks in current project
 bruce start task-id               # Start task with enhanced context
 bruce commit task-id              # Complete and commit task
 bruce phases                      # Show phase progress
 bruce ui                          # Start web interface
 
-# Web Interface
-Dashboard: Project stats and phase progress
+# Multi-Project Web Interface
+Project Selector: Switch between discovered projects
+🔍 Discover: Find all Bruce projects on system
+Dashboard: Project-specific stats and progress
 Tasks: Enhanced task management with context modals
 Manage: Add tasks, phases, and import blueprints
-Generator: Create comprehensive documentation
+Generator: Create project-specific documentation
 Reports: Generate Claude handoff reports
-Config: View and manage bruce.yaml settings
+Config: View and manage project configuration
                     </div>
                 </div>
                 
                 <div class="help-section">
-                    <h3 style="color: {{ theme_color }}; margin-bottom: 15px;">📋 Modular Architecture Benefits</h3>
+                    <h3 style="color: {{ theme_color }}; margin-bottom: 15px;">📋 Multi-Project Architecture Benefits</h3>
                     <ul style="margin-left: 20px; line-height: 1.8; color: #ccc;">
-                        <li><strong>Easier Maintenance:</strong> Each page in its own template file</li>
-                        <li><strong>Faster Development:</strong> Change specific pages without affecting others</li>
-                        <li><strong>Better Testing:</strong> Test individual components in isolation</li>
-                        <li><strong>Cleaner Code:</strong> Separation of Python logic and HTML display</li>
-                        <li><strong>Collaboration Ready:</strong> Easy to work with ChatGPT on specific templates</li>
+                        <li><strong>Isolated Workspaces:</strong> Each project maintains independent state and progress</li>
+                        <li><strong>Flexible Organization:</strong> Organize work by client, technology, or phase</li>
+                        <li><strong>Easy Context Switching:</strong> Jump between projects without losing context</li>
+                        <li><strong>Reusable Patterns:</strong> Import blueprints across similar projects</li>
+                        <li><strong>Scalable Management:</strong> Handle multiple concurrent projects efficiently</li>
                     </ul>
                 </div>
                 
                 <div class="tip-box">
-                    <h4>🏗️ System Architecture Ready for Phase 3</h4>
-                    <p>The modular template system is specifically designed for your Phase 3 testing goals. Each template handles a specific concern, making it easy to test concurrent users, multi-project scenarios, and large datasets without the UI becoming a bottleneck.</p>
+                    <h4>🏗️ System Ready for Advanced Workflows</h4>
+                    <p>The multi-project system is designed for complex scenarios: concurrent development streams, client work separation, and large-scale data processing pipelines. Each project can have its own themes, configurations, and workflows.</p>
                 </div>
                 
                 <div style="text-align: center; margin: 30px 0;">
@@ -222,6 +241,70 @@ Config: View and manage bruce.yaml settings
                 </div>
             </div>
         </div>
+        
+        <script>
+        function switchProject() {
+            const select = document.getElementById('project-select');
+            const projectPath = select.value;
+            
+            if (!projectPath) return;
+            
+            select.disabled = true;
+            const originalText = select.options[select.selectedIndex].text;
+            select.options[select.selectedIndex].text = '🔄 Switching...';
+            
+            fetch('/api/switch_project', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({project_path: projectPath})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert('Failed to switch project: ' + data.error);
+                    select.options[select.selectedIndex].text = originalText;
+                    select.disabled = false;
+                }
+            })
+            .catch(error => {
+                alert('Error switching project: ' + error);
+                select.options[select.selectedIndex].text = originalText;
+                select.disabled = false;
+            });
+        }
+
+        function discoverProjects() {
+            fetch('/api/discover_projects')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const select = document.getElementById('project-select');
+                    select.innerHTML = '';
+                    
+                    data.projects.forEach(project => {
+                        const option = document.createElement('option');
+                        option.value = project.path;
+                        option.selected = project.is_current;
+                        
+                        const accessIcon = project.accessible ? '✅' : '❌';
+                        const taskCount = project.task_count || 0;
+                        option.textContent = `${accessIcon} ${project.name} (${taskCount} tasks)`;
+                        
+                        select.appendChild(option);
+                    });
+                    
+                    alert(`Discovered ${data.projects.length} Bruce projects!`);
+                } else {
+                    alert('Failed to discover projects: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('Error discovering projects: ' + error);
+            });
+        }
+        </script>
     </body>
     </html>
     """

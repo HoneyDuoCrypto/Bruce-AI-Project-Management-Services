@@ -1,7 +1,3 @@
-"""
-Phases template - Complete implementation for phase overview and progress tracking
-"""
-
 def get_phases_template():
     """Returns the complete phases overview HTML template"""
     
@@ -21,8 +17,26 @@ def get_phases_template():
     <body>
         <div class="header">
             <div class="container">
-                <h1>🤖 {{ project_name }}</h1>
-                <div class="domain-badge">🌐 AI Project Assistant • {{ domain }}</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div>
+                        <h1>🤖 {{ project_name }}</h1>
+                        <div class="domain-badge">🌐 AI Project Assistant • {{ domain }}</div>
+                    </div>
+                    {% if multi_project_enabled %}
+                    <div class="project-selector">
+                        <label for="project-select">Project:</label>
+                        <select id="project-select" onchange="switchProject()">
+                            {% for project in available_projects %}
+                                {% set selected = 'selected' if project.is_current else '' %}
+                                {% set accessible_icon = '✅' if project.get('accessible', True) else '❌' %}
+                                <option value="{{ project.path }}" {{ selected }}>
+                                    {{ accessible_icon }} {{ project.name }} ({{ project.get('task_count', 0) }} tasks)
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                </div>
                 <div class="nav">
                     <a href="/">📊 Dashboard</a>
                     <a href="/tasks">📋 Tasks</a>
@@ -32,6 +46,9 @@ def get_phases_template():
                     <a href="/reports">📈 Reports</a>
                     <a href="/config">⚙️ Config</a>
                     <a href="/help">❓ Help</a>
+                    {% if multi_project_enabled %}
+                    <button onclick="discoverProjects()" class="btn btn-info" style="margin-left: 15px;">🔍 Discover</button>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -93,6 +110,70 @@ def get_phases_template():
                 </div>
             {% endfor %}
         </div>
+        
+        <script>
+        function switchProject() {
+            const select = document.getElementById('project-select');
+            const projectPath = select.value;
+            
+            if (!projectPath) return;
+            
+            select.disabled = true;
+            const originalText = select.options[select.selectedIndex].text;
+            select.options[select.selectedIndex].text = '🔄 Switching...';
+            
+            fetch('/api/switch_project', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({project_path: projectPath})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert('Failed to switch project: ' + data.error);
+                    select.options[select.selectedIndex].text = originalText;
+                    select.disabled = false;
+                }
+            })
+            .catch(error => {
+                alert('Error switching project: ' + error);
+                select.options[select.selectedIndex].text = originalText;
+                select.disabled = false;
+            });
+        }
+
+        function discoverProjects() {
+            fetch('/api/discover_projects')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const select = document.getElementById('project-select');
+                    select.innerHTML = '';
+                    
+                    data.projects.forEach(project => {
+                        const option = document.createElement('option');
+                        option.value = project.path;
+                        option.selected = project.is_current;
+                        
+                        const accessIcon = project.accessible ? '✅' : '❌';
+                        const taskCount = project.task_count || 0;
+                        option.textContent = `${accessIcon} ${project.name} (${taskCount} tasks)`;
+                        
+                        select.appendChild(option);
+                    });
+                    
+                    alert(`Discovered ${data.projects.length} Bruce projects!`);
+                } else {
+                    alert('Failed to discover projects: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('Error discovering projects: ' + error);
+            });
+        }
+        </script>
     </body>
     </html>
     """
