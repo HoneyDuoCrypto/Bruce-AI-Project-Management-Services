@@ -22,6 +22,6 @@ ui:
   title: "Bruce Project"
   theme_color: "#00d4aa"
   domain: "bruce.honey-duo.com"
-  port: 5000
+  port: 5001
 
 # Bruce Version: 1.0-portable

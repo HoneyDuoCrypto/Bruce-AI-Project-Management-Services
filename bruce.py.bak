@@ -1,0 +1,2944 @@
+#!/usr/bin/env python3
+"""
+Bruce Complete Management Interface
+Enhanced with multi-phase support, progress tracking, Blueprint Generator UI, Enhanced Context,
+Dynamic Task/Phase Management UI, Config System Integration, AND Blueprint Import Feature
+"""
+
+from flask import Flask, request, jsonify, make_response, redirect, url_for
+from functools import wraps
+import yaml
+import subprocess
+import os
+import sys
+from pathlib import Path
+import datetime
+import json
+
+# Add src to path to import TaskManager and ConfigManager
+sys.path.insert(0, str(Path(__file__).parent))
+from src.task_manager import TaskManager
+
+app = Flask(__name__)
+app.secret_key = 'bruce-project-2025-secure'
+
+# Authentication (keeping original for now)
+VALID_USERS = {
+    'hdw': 'HoneyDuo2025!',
+    'admin': 'AdminPass123!'
+}
+
+def check_auth(username, password):
+    return username in VALID_USERS and VALID_USERS[username] == password
+
+def authenticate():
+    return make_response(
+        '🔐 Bruce Access Required\nLogin required for Bruce Project Management',
+        401,
+        {'WWW-Authenticate': 'Basic realm="Bruce Management Interface"'}
+    )
+
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return authenticate()
+        return f(*args, **kwargs)
+    return decorated
+
+PROJECT_ROOT = Path(__file__).parent
+
+# Initialize TaskManager with Config
+task_manager = TaskManager(PROJECT_ROOT)
+config = task_manager.config  # Get config from TaskManager
+
+def run_cli_command(command):
+    """Run CLI command and return result"""
+    try:
+        cmd = f"python3 {PROJECT_ROOT}/cli/bruce.py {command}"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=PROJECT_ROOT)
+        return {"success": result.returncode == 0, "output": result.stdout, "error": result.stderr}
+    except Exception as e:
+        return {"success": False, "output": "", "error": str(e)}
+
+def get_base_html(title, active_page="dashboard"):
+    """Get base HTML template with config-driven branding"""
+    if config:
+        project_name = config.project.name
+        theme_color = config.ui.theme_color
+        domain = config.ui.domain
+        page_title = config.ui.title or project_name
+    else:
+        project_name = "Bruce"
+        theme_color = "#00d4aa"
+        domain = "bruce.honey-duo.com"
+        page_title = "Bruce"
+    
+    # Calculate lighter theme color for gradients
+    theme_color_light = theme_color + "dd" if len(theme_color) == 7 else theme_color
+    
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{title} - {page_title}</title>
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ 
+                font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+                background: linear-gradient(135deg, #1a1a1a 0%, #2d2d30 100%);
+                color: #ffffff; 
+                line-height: 1.6;
+                min-height: 100vh;
+            }}
+            .container {{ max-width: 1200px; margin: 0 auto; padding: 20px; }}
+            .header {{ 
+                background: linear-gradient(135deg, #2b2b2b 0%, #1a1a1a 100%);
+                padding: 30px 0; 
+                border-bottom: 3px solid {theme_color};
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            }}
+            .header h1 {{ 
+                color: {theme_color}; 
+                text-align: center; 
+                font-size: 2.5em;
+                text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+                margin-bottom: 10px;
+            }}
+            .domain-badge {{ 
+                text-align: center; 
+                color: #888;
+                font-size: 14px;
+                margin-bottom: 20px;
+            }}
+            .nav {{ 
+                display: flex; 
+                justify-content: center; 
+                gap: 20px; 
+                flex-wrap: wrap;
+            }}
+            .nav a {{ 
+                color: #ffffff; 
+                text-decoration: none; 
+                padding: 12px 24px;
+                background: linear-gradient(135deg, #333 0%, #555 100%);
+                border-radius: 8px; 
+                transition: all 0.3s ease;
+                border: 1px solid transparent;
+                font-weight: 500;
+            }}
+            .nav a:hover, .nav a.active {{ 
+                background: linear-gradient(135deg, {theme_color} 0%, {theme_color_light} 100%);
+                color: #000; 
+                transform: translateY(-2px);
+                box-shadow: 0 4px 15px rgba(0,212,170,0.3);
+            }}
+            .content-section {{ 
+                background: rgba(43, 43, 43, 0.8);
+                border-radius: 15px; 
+                padding: 25px; 
+                margin: 20px 0;
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(255,255,255,0.1);
+                box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+            }}
+            .section-title {{ 
+                color: {theme_color}; 
+                margin-bottom: 20px; 
+                font-size: 1.5em;
+                border-bottom: 2px solid {theme_color};
+                padding-bottom: 10px;
+            }}
+            .btn {{ 
+                padding: 10px 20px; 
+                border: none; 
+                border-radius: 8px;
+                cursor: pointer; 
+                font-weight: bold; 
+                transition: all 0.3s ease;
+                text-decoration: none;
+                display: inline-block;
+                margin: 5px;
+                font-size: 14px;
+            }}
+            .btn:hover {{ 
+                transform: translateY(-2px); 
+                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            }}
+            .btn-primary {{ background: linear-gradient(135deg, {theme_color} 0%, {theme_color_light} 100%); color: #000; }}
+            .btn-success {{ background: linear-gradient(135deg, #00cc00 0%, #009900 100%); color: white; }}
+            .btn-info {{ background: linear-gradient(135deg, #0066cc 0%, #004499 100%); color: white; }}
+            .btn-danger {{ background: linear-gradient(135deg, #cc0000 0%, #990000 100%); color: white; }}
+            .btn-warning {{ background: linear-gradient(135deg, #ff8c00 0%, #ff6b35 100%); color: white; }}
+            .btn-secondary {{ background: linear-gradient(135deg, #666 0%, #888 100%); color: white; }}
+            .task-item {{ 
+                display: flex; 
+                justify-content: space-between; 
+                align-items: center;
+                padding: 20px; 
+                margin: 15px 0; 
+                background: rgba(51, 51, 51, 0.8);
+                border-radius: 10px;
+                border-left: 4px solid {theme_color};
+                transition: all 0.3s ease;
+            }}
+            .task-item:hover {{
+                background: rgba(51, 51, 51, 1);
+                transform: translateX(5px);
+            }}
+            .task-info {{ flex: 1; }}
+            .task-title {{ font-weight: bold; margin-bottom: 8px; font-size: 18px; }}
+            .task-meta {{ color: #ccc; font-size: 14px; margin-bottom: 4px; }}
+            .task-actions {{ display: flex; gap: 10px; flex-wrap: wrap; }}
+            .form-group {{ margin: 20px 0; }}
+            .form-group label {{ 
+                display: block; 
+                margin-bottom: 8px; 
+                color: {theme_color}; 
+                font-weight: bold;
+            }}
+            .form-group select, .form-group textarea, .form-group input {{
+                width: 100%; 
+                padding: 12px; 
+                border: 1px solid #555; 
+                border-radius: 8px;
+                background: #333; 
+                color: #fff;
+                font-size: 16px;
+                font-family: inherit;
+            }}
+            .form-group select:focus, .form-group textarea:focus, .form-group input:focus {{
+                outline: none;
+                border-color: {theme_color};
+                box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.2);
+            }}
+            .form-row {{ 
+                display: grid; 
+                grid-template-columns: 1fr 1fr; 
+                gap: 20px; 
+            }}
+            .form-row-thirds {{ 
+                display: grid; 
+                grid-template-columns: 1fr 1fr 1fr; 
+                gap: 15px; 
+            }}
+            .report-area {{ 
+                background: #1a1a1a; 
+                color: #ffffff; 
+                padding: 20px; 
+                border-radius: 10px;
+                font-family: 'Courier New', monospace; 
+                white-space: pre-wrap;
+                min-height: 300px; 
+                margin: 20px 0;
+                border: 2px solid {theme_color};
+                font-size: 13px;
+                line-height: 1.4;
+                overflow-y: auto;
+                max-height: 600px;
+            }}
+            .generator-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 20px;
+                margin: 20px 0;
+            }}
+            .generator-card {{
+                background: rgba(30, 30, 30, 0.8);
+                border-radius: 12px;
+                padding: 20px;
+                border: 1px solid rgba(0, 212, 170, 0.3);
+                transition: all 0.3s ease;
+            }}
+            .generator-card:hover {{
+                border-color: {theme_color};
+                transform: translateY(-5px);
+                box-shadow: 0 10px 30px rgba(0, 212, 170, 0.2);
+            }}
+            .card-title {{
+                color: {theme_color};
+                font-size: 1.3em;
+                font-weight: bold;
+                margin-bottom: 15px;
+                text-align: center;
+            }}
+            .card-description {{
+                color: #ccc;
+                margin-bottom: 20px;
+                text-align: center;
+            }}
+            .stats-grid {{ 
+                display: grid; 
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+                gap: 20px; 
+                margin: 20px 0; 
+            }}
+            .stat-box {{ 
+                padding: 20px; 
+                border-radius: 15px; 
+                text-align: center; 
+                color: white; 
+                font-weight: bold;
+                transition: all 0.3s ease;
+                border: 1px solid rgba(255,255,255,0.1);
+            }}
+            .stat-box:hover {{ transform: translateY(-5px); box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
+            .stat-number {{ font-size: 2.5em; margin-bottom: 10px; }}
+            .stat-label {{ font-size: 1em; opacity: 0.9; }}
+            .stat-pending {{ background: linear-gradient(135deg, #ff8c00 0%, #ff6b35 100%); }}
+            .stat-in-progress {{ background: linear-gradient(135deg, #0066cc 0%, #004499 100%); }}
+            .stat-completed {{ background: linear-gradient(135deg, #00cc00 0%, #009900 100%); }}
+            .stat-blocked {{ background: linear-gradient(135deg, #cc0000 0%, #990000 100%); }}
+            .success {{ color: #00ff00; font-weight: bold; }}
+            .error {{ color: #ff6b6b; font-weight: bold; }}
+            .info {{ color: #0099ff; font-weight: bold; }}
+            .time-display {{ 
+                text-align: center; 
+                color: #aaa; 
+                font-size: 14px; 
+                margin: 15px 0; 
+            }}
+            .status-message {{
+                padding: 15px;
+                border-radius: 8px;
+                margin: 15px 0;
+                font-weight: bold;
+            }}
+            .status-success {{ background: rgba(0, 204, 0, 0.2); color: #00ff00; border: 1px solid #00cc00; }}
+            .status-error {{ background: rgba(204, 0, 0, 0.2); color: #ff6b6b; border: 1px solid #cc0000; }}
+            .status-info {{ background: rgba(0, 102, 204, 0.2); color: #0099ff; border: 1px solid #0066cc; }}
+            .empty-state {{
+                text-align: center;
+                color: #888;
+                padding: 60px 20px;
+                font-size: 18px;
+            }}
+            .phase-section {{
+                margin: 30px 0;
+                padding: 20px;
+                background: rgba(30, 30, 30, 0.5);
+                border-radius: 12px;
+                border: 1px solid rgba(0, 212, 170, 0.2);
+            }}
+            .phase-header {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 20px;
+            }}
+            .phase-title {{
+                font-size: 1.3em;
+                color: {theme_color};
+                font-weight: bold;
+            }}
+            .phase-progress {{
+                display: flex;
+                align-items: center;
+                gap: 15px;
+            }}
+            .progress-bar {{
+                width: 200px;
+                height: 20px;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 10px;
+                overflow: hidden;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }}
+            .progress-fill {{
+                height: 100%;
+                background: linear-gradient(90deg, {theme_color} 0%, {theme_color_light} 100%);
+                transition: width 0.3s ease;
+            }}
+            .progress-text {{
+                font-size: 14px;
+                color: #ccc;
+            }}
+            /* Enhanced context modal styles */
+            .modal {{
+                display: none;
+                position: fixed;
+                z-index: 1000;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0,0,0,0.8);
+            }}
+            .modal-content {{
+                background-color: #2b2b2b;
+                margin: 5% auto;
+                padding: 20px;
+                border: 2px solid {theme_color};
+                border-radius: 10px;
+                width: 80%;
+                max-width: 800px;
+                max-height: 80vh;
+                overflow-y: auto;
+                color: #fff;
+            }}
+            .close {{
+                color: {theme_color};
+                float: right;
+                font-size: 28px;
+                font-weight: bold;
+                cursor: pointer;
+            }}
+            .close:hover {{
+                color: {theme_color_light};
+            }}
+            .checkbox-container {{
+                margin: 15px 0;
+                padding: 15px;
+                background: rgba(0, 212, 170, 0.1);
+                border-radius: 8px;
+                border: 1px solid rgba(0, 212, 170, 0.3);
+            }}
+            .checkbox-container label {{
+                display: flex;
+                align-items: center;
+                cursor: pointer;
+            }}
+            .checkbox-container input[type="checkbox"] {{
+                margin-right: 10px;
+                width: 20px;
+                height: 20px;
+                cursor: pointer;
+            }}
+            .related-tasks {{
+                margin: 20px 0;
+                padding: 15px;
+                background: rgba(30, 30, 30, 0.8);
+                border-radius: 8px;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }}
+            .related-task {{
+                padding: 10px;
+                margin: 5px 0;
+                background: rgba(51, 51, 51, 0.8);
+                border-radius: 5px;
+                border-left: 3px solid {theme_color};
+            }}
+            /* Management form styles */
+            .management-tabs {{
+                display: flex;
+                margin-bottom: 20px;
+                border-bottom: 2px solid #333;
+            }}
+            .tab {{
+                padding: 15px 25px;
+                background: rgba(51, 51, 51, 0.8);
+                color: #ccc;
+                cursor: pointer;
+                border: none;
+                border-bottom: 3px solid transparent;
+                transition: all 0.3s ease;
+            }}
+            .tab.active {{
+                background: rgba(0, 212, 170, 0.1);
+                color: {theme_color};
+                border-bottom-color: {theme_color};
+            }}
+            .tab-content {{
+                display: none;
+                animation: fadeIn 0.3s ease;
+            }}
+            .tab-content.active {{
+                display: block;
+            }}
+            @keyframes fadeIn {{
+                from {{ opacity: 0; transform: translateY(10px); }}
+                to {{ opacity: 1; transform: translateY(0); }}
+            }}
+            .dynamic-fields {{
+                background: rgba(30, 30, 30, 0.8);
+                border-radius: 8px;
+                padding: 20px;
+                margin: 15px 0;
+                border: 1px solid rgba(0, 212, 170, 0.2);
+            }}
+            .field-row {{
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                margin: 10px 0;
+            }}
+            .field-row input {{
+                flex: 1;
+                padding: 8px 12px;
+                background: #333;
+                border: 1px solid #555;
+                border-radius: 6px;
+                color: #fff;
+            }}
+            .remove-btn {{
+                background: #cc0000;
+                color: white;
+                border: none;
+                padding: 8px 12px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+            }}
+            .add-btn {{
+                background: #00cc00;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+                margin-top: 10px;
+            }}
+            .config-info {{
+                background: rgba(30, 30, 30, 0.6);
+                border-radius: 8px;
+                padding: 15px;
+                margin: 15px 0;
+                border-left: 4px solid {theme_color};
+            }}
+            @media (max-width: 768px) {{
+                .task-item {{ flex-direction: column; align-items: flex-start; }}
+                .task-actions {{ margin-top: 15px; width: 100%; }}
+                .nav {{ gap: 10px; }}
+                .nav a {{ padding: 8px 16px; font-size: 14px; }}
+                .progress-bar {{ width: 150px; }}
+                .generator-grid {{ grid-template-columns: 1fr; }}
+                .form-row {{ grid-template-columns: 1fr; }}
+                .form-row-thirds {{ grid-template-columns: 1fr; }}
+                .management-tabs {{ flex-wrap: wrap; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="container">
+                <h1>🤖 {project_name}</h1>
+                <div class="domain-badge">🌐 AI Project Assistant • {domain}</div>
+                <div class="nav">
+                    <a href="/" class="{'active' if active_page == 'dashboard' else ''}">📊 Dashboard</a>
+                    <a href="/tasks" class="{'active' if active_page == 'tasks' else ''}">📋 Tasks</a>
+                    <a href="/phases" class="{'active' if active_page == 'phases' else ''}">📁 Phases</a>
+                    <a href="/manage" class="{'active' if active_page == 'manage' else ''}">⚙️ Manage</a>
+                    <a href="/generator" class="{'active' if active_page == 'generator' else ''}">🏗️ Generator</a>
+                    <a href="/reports" class="{'active' if active_page == 'reports' else ''}">📈 Reports</a>
+                    <a href="/config" class="{'active' if active_page == 'config' else ''}">⚙️ Config</a>
+                    <a href="/help" class="{'active' if active_page == 'help' else ''}">❓ Help</a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="container">
+    """
+
+# Add configuration page
+@app.route('/config')
+@requires_auth
+def config_info():
+    """Show current configuration"""
+    html = get_base_html("Configuration", "config")
+    info = task_manager.get_project_info()
+    
+    html += f"""
+            <div class="content-section">
+                <h2 class="section-title">⚙️ Bruce Configuration</h2>
+                <p style="color: #ccc; margin-bottom: 20px;">Project configuration and system settings</p>
+                
+                <div class="config-info">
+                    <h3 style="color: {config.ui.theme_color if config else '#00d4aa'}; margin-bottom: 15px;">📋 Project Information</h3>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Project Name:</label>
+                            <div style="padding: 12px; background: #333; border-radius: 8px; color: #fff;">
+                                {info['name']}
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Project Type:</label>
+                            <div style="padding: 12px; background: #333; border-radius: 8px; color: #fff;">
+                                {info['type']}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Description:</label>
+                        <div style="padding: 12px; background: #333; border-radius: 8px; color: #fff;">
+                            {info['description']}
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Config File:</label>
+                            <div style="padding: 12px; background: #333; border-radius: 8px; color: #fff; font-family: monospace;">
+                                {info['config_file'] or 'None (using defaults)'}
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Config Status:</label>
+                            <div style="padding: 12px; background: #333; border-radius: 8px; color: #fff;">
+                                {'✅ Loaded from file' if info['config_loaded'] else '📋 Using defaults'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="config-info">
+                    <h3 style="color: {config.ui.theme_color if config else '#00d4aa'}; margin-bottom: 15px;">📁 Directory Structure</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Contexts:</label>
+                            <div style="padding: 12px; background: #333; border-radius: 8px; color: #fff; font-family: monospace;">
+                                {config.bruce.contexts_dir if config else 'contexts'}
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Blueprints:</label>
+                            <div style="padding: 12px; background: #333; border-radius: 8px; color: #fff; font-family: monospace;">
+                                {config.bruce.blueprints_dir if config else 'docs/blueprints'}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Phases:</label>
+                            <div style="padding: 12px; background: #333; border-radius: 8px; color: #fff; font-family: monospace;">
+                                {config.bruce.phases_dir if config else 'phases'}
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Reports:</label>
+                            <div style="padding: 12px; background: #333; border-radius: 8px; color: #fff; font-family: monospace;">
+                                {config.bruce.reports_dir if config else 'claude_reports'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="config-info">
+                    <h3 style="color: {config.ui.theme_color if config else '#00d4aa'}; margin-bottom: 15px;">🎨 UI Settings</h3>
+                    <div class="form-row-thirds">
+                        <div class="form-group">
+                            <label>Theme Color:</label>
+                            <div style="padding: 12px; background: #333; border-radius: 8px; color: #fff; font-family: monospace;">
+                                <span style="display: inline-block; width: 20px; height: 20px; background: {config.ui.theme_color if config else '#00d4aa'}; border-radius: 3px; margin-right: 10px; vertical-align: middle;"></span>
+                                {config.ui.theme_color if config else '#00d4aa'}
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Domain:</label>
+                            <div style="padding: 12px; background: #333; border-radius: 8px; color: #fff; font-family: monospace;">
+                                {config.ui.domain if config else 'bruce.honey-duo.com'}
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Port:</label>
+                            <div style="padding: 12px; background: #333; border-radius: 8px; color: #fff; font-family: monospace;">
+                                {config.ui.port if config else '5000'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 30px; text-align: center;">
+                    <button class="btn btn-primary" onclick="createConfig()">📄 Create Config File</button>
+                    <button class="btn btn-info" onclick="validateConfig()">✅ Validate Config</button>
+                    <button class="btn btn-secondary" onclick="location.reload()">🔄 Reload Config</button>
+                    <button class="btn btn-warning" onclick="showConfigExample()">📝 Show Example</button>
+                </div>
+                
+                <div id="config-status"></div>
+                <div id="config-example" style="display: none; margin-top: 20px;">
+                    <h3 style="color: {config.ui.theme_color if config else '#00d4aa'}; margin-bottom: 15px;">📝 Example bruce.yaml</h3>
+                    <div class="report-area" style="max-height: 400px;">
+# Bruce Project Configuration
+project:
+  name: "My Amazing Project"
+  description: "AI-assisted project management"
+  type: "web-application"
+  author: "Your Name"
+
+bruce:
+  # Directory structure (relative to project root)
+  contexts_dir: "contexts"
+  blueprints_dir: "docs/blueprints"
+  phases_dir: "phases"
+  reports_dir: "claude_reports"
+  tasks_file: "tasks.yaml"
+
+ui:
+  # Web interface customization
+  title: "My Project"
+  theme_color: "#00d4aa"
+  domain: "bruce.honey-duo.com"
+  port: 5000
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        function createConfig() {{
+            if (!confirm('Create a default bruce.yaml configuration file?\\n\\nThis will help make your project portable.')) return;
+            
+            fetch('/api/create_config', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}}
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                if (data.success) {{
+                    showConfigMessage('✅ Config file created successfully! Reloading...', 'success');
+                    setTimeout(() => location.reload(), 2000);
+                }} else {{
+                    showConfigMessage('❌ Error: ' + data.error, 'error');
+                }}
+            }})
+            .catch(error => {{
+                showConfigMessage('❌ Network error: ' + error, 'error');
+            }});
+        }}
+        
+        function validateConfig() {{
+            fetch('/api/validate_config')
+            .then(response => response.json())
+            .then(data => {{
+                if (data.valid) {{
+                    showConfigMessage('✅ Configuration is valid! All directories accessible.', 'success');
+                }} else {{
+                    showConfigMessage('❌ Configuration validation failed: ' + (data.error || 'Unknown error'), 'error');
+                }}
+            }})
+            .catch(error => {{
+                showConfigMessage('❌ Network error: ' + error, 'error');
+            }});
+        }}
+        
+        function showConfigExample() {{
+            const exampleDiv = document.getElementById('config-example');
+            if (exampleDiv.style.display === 'none') {{
+                exampleDiv.style.display = 'block';
+            }} else {{
+                exampleDiv.style.display = 'none';
+            }}
+        }}
+        
+        function showConfigMessage(message, type) {{
+            document.getElementById('config-status').innerHTML = 
+                `<div class="status-message status-${{type}}" style="margin-top: 20px;">${{message}}</div>`;
+        }}
+        </script>
+    </body>
+    </html>
+    """
+    return html
+
+# DASHBOARD - Full Implementation
+@app.route('/')
+@requires_auth
+def dashboard():
+    tasks_data = task_manager.load_tasks()
+    tasks = tasks_data.get("tasks", [])
+    
+    # Calculate statistics
+    status_counts = {}
+    for task in tasks:
+        status = task.get('status', 'pending')
+        status_counts[status] = status_counts.get(status, 0) + 1
+    
+    # Get phase progress
+    phase_progress = task_manager.get_phase_progress()
+    
+    # Get recent tasks
+    recent_tasks = sorted([t for t in tasks if t.get('updated')], 
+                         key=lambda x: x.get('updated', ''), reverse=True)[:10]
+    
+    current_time = datetime.datetime.now().strftime('%A, %B %d, %Y at %I:%M %p')
+    
+    html = get_base_html("Dashboard", "dashboard")
+    
+    html += f"""
+            <div class="time-display">{current_time}</div>
+            
+            <div class="content-section">
+                <h2 class="section-title">📊 Project Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-box stat-pending">
+                        <div class="stat-number">{status_counts.get('pending', 0)}</div>
+                        <div class="stat-label">⏳ Pending Tasks</div>
+                    </div>
+                    <div class="stat-box stat-in-progress">
+                        <div class="stat-number">{status_counts.get('in-progress', 0)}</div>
+                        <div class="stat-label">🔄 In Progress</div>
+                    </div>
+                    <div class="stat-box stat-completed">
+                        <div class="stat-number">{status_counts.get('completed', 0)}</div>
+                        <div class="stat-label">✅ Completed</div>
+                    </div>
+                    <div class="stat-box stat-blocked">
+                        <div class="stat-number">{status_counts.get('blocked', 0)}</div>
+                        <div class="stat-label">🚫 Blocked</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="content-section">
+                <h2 class="section-title">📈 Phase Progress</h2>
+    """
+    
+    # Show phase progress
+    for phase_id in sorted(phase_progress.keys()):
+        progress = phase_progress[phase_id]
+        bar_width = int(progress["percentage"])
+        
+        html += f"""
+                <div class="phase-section">
+                    <div class="phase-header">
+                        <div class="phase-title">📁 Phase {phase_id}: {progress['name']}</div>
+                        <div class="phase-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: {bar_width}%"></div>
+                            </div>
+                            <div class="progress-text">{progress['percentage']:.0f}% ({progress['completed']}/{progress['total']})</div>
+                        </div>
+                    </div>
+                    <div style="color: #ccc; font-size: 14px;">
+                        {progress['completed']} completed, {progress['in_progress']} in progress, {progress['pending']} pending
+                        {f", {progress['blocked']} blocked" if progress['blocked'] > 0 else ""}
+                    </div>
+                </div>
+        """
+    
+    html += """
+            </div>
+            
+            <div class="content-section">
+                <h2 class="section-title">🚀 Quick Actions</h2>
+                <div style="display: flex; gap: 15px; flex-wrap: wrap; justify-content: center;">
+                    <a href="/tasks" class="btn btn-primary">📋 Manage Tasks</a>
+                    <a href="/phases" class="btn btn-info">📁 View Phases</a>
+                    <a href="/manage" class="btn btn-warning">⚙️ Add/Edit Tasks</a>
+                    <a href="/generator" class="btn btn-success">🏗️ Blueprint Generator</a>
+                    <a href="/reports" class="btn btn-warning">📈 Generate Reports</a>
+                    <a href="/config" class="btn btn-secondary">⚙️ Configuration</a>
+                    <button onclick="location.reload()" class="btn btn-secondary">🔄 Refresh Dashboard</button>
+                </div>
+            </div>
+            
+            <div class="content-section">
+                <h2 class="section-title">🔄 Recent Activity</h2>
+    """
+    
+    if recent_tasks:
+        for task in recent_tasks:
+            status_icon = {'pending': '⏳', 'in-progress': '🔄', 'completed': '✅', 'blocked': '🚫'}.get(task.get('status'), '❓')
+            phase_info = f"Phase {task.get('phase', 0)}" if task.get('phase', 0) > 0 else "Legacy"
+            updated = task.get('updated', '')
+            if updated:
+                try:
+                    dt = datetime.datetime.fromisoformat(updated.replace('Z', '+00:00'))
+                    time_str = dt.strftime('%m/%d %I:%M%p')
+                except:
+                    time_str = updated[:10]
+            else:
+                time_str = 'Never'
+            
+            html += f"""
+                <div class="task-item">
+                    <div class="task-info">
+                        <div class="task-title">{status_icon} {task['id']}</div>
+                        <div class="task-meta">{task.get('description', '')}</div>
+                        <div class="task-meta">{phase_info} • Updated: {time_str} • Status: {task.get('status', 'pending')}</div>
+                    </div>
+                    <div class="task-actions">
+                        <a href="/tasks" class="btn btn-primary">📋 Manage</a>
+                    </div>
+                </div>
+            """
+    else:
+        html += '<div class="empty-state">No recent activity</div>'
+    
+    html += """
+            </div>
+        </div>
+        
+        <script>
+        // Auto-refresh every 2 minutes
+        setTimeout(() => location.reload(), 120000);
+        </script>
+    </body>
+    </html>
+    """
+    
+    return html
+
+# MANAGEMENT PAGE - Full Implementation WITH BLUEPRINT IMPORT
+@app.route('/manage')
+@requires_auth
+def manage():
+    tasks_data = task_manager.load_tasks()
+    phase_progress = task_manager.get_phase_progress()
+    
+    html = get_base_html("Task & Phase Management", "manage")
+    
+    html += """
+            <div class="content-section">
+                <h2 class="section-title">⚙️ Task & Phase Management</h2>
+                <p style="color: #ccc; margin-bottom: 20px;">Add new phases, create tasks, edit existing items, and import blueprints</p>
+                
+                <div class="management-tabs">
+                    <button class="tab active" onclick="switchTab('add-task')">➕ Add Task</button>
+                    <button class="tab" onclick="switchTab('add-phase')">📁 Add Phase</button>
+                    <button class="tab" onclick="switchTab('edit-task')">✏️ Edit Task</button>
+                    <button class="tab" onclick="switchTab('import-blueprint')">📥 Import Blueprint</button>
+                </div>
+                
+                <!-- Add Task Tab -->
+                <div id="add-task" class="tab-content active">
+                    <h3 style="color: """ + (config.ui.theme_color if config else '#00d4aa') + """; margin-bottom: 20px;">➕ Add New Task</h3>
+                    
+                    <form id="add-task-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="task-phase">Phase:</label>
+                                <select id="task-phase" required>
+                                    <option value="">Select Phase...</option>
+    """
+    
+    # Add phase options
+    for phase_id in sorted(phase_progress.keys()):
+        progress = phase_progress[phase_id]
+        html += f'<option value="{phase_id}">Phase {phase_id}: {progress["name"]}</option>'
+    
+    html += """
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="task-id">Task ID:</label>
+                                <input type="text" id="task-id" required placeholder="e.g., trading-engine-core">
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="task-description">Description:</label>
+                            <textarea id="task-description" rows="3" required placeholder="What needs to be implemented?"></textarea>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="task-output">Expected Output:</label>
+                                <input type="text" id="task-output" placeholder="e.g., src/trading_engine.py with core functionality">
+                            </div>
+                            <div class="form-group">
+                                <label for="task-tests">Test File:</label>
+                                <input type="text" id="task-tests" placeholder="e.g., tests/test_trading_engine.py">
+                            </div>
+                        </div>
+                        
+                        <div class="dynamic-fields">
+                            <label style="color: """ + (config.ui.theme_color if config else '#00d4aa') + """; font-weight: bold;">Context Files:</label>
+                            <div id="context-fields">
+                                <div class="field-row">
+                                    <input type="text" placeholder="e.g., docs/architecture.md">
+                                    <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+                                </div>
+                            </div>
+                            <button type="button" class="add-btn" onclick="addContextField()">➕ Add Context File</button>
+                        </div>
+                        
+                        <div class="dynamic-fields">
+                            <label style="color: """ + (config.ui.theme_color if config else '#00d4aa') + """; font-weight: bold;">Dependencies:</label>
+                            <div id="dependency-fields">
+                                <div class="field-row">
+                                    <input type="text" placeholder="e.g., other-task-id">
+                                    <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+                                </div>
+                            </div>
+                            <button type="button" class="add-btn" onclick="addDependencyField()">➕ Add Dependency</button>
+                        </div>
+                        
+                        <div class="dynamic-fields">
+                            <label style="color: """ + (config.ui.theme_color if config else '#00d4aa') + """; font-weight: bold;">Acceptance Criteria:</label>
+                            <div id="criteria-fields">
+                                <div class="field-row">
+                                    <input type="text" placeholder="e.g., Handles 1000+ requests per second">
+                                    <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+                                </div>
+                            </div>
+                            <button type="button" class="add-btn" onclick="addCriteriaField()">➕ Add Criteria</button>
+                        </div>
+                        
+                        <div style="margin-top: 30px; text-align: center;">
+                            <button type="submit" class="btn btn-primary" style="font-size: 16px; padding: 15px 30px;">➕ Create Task</button>
+                            <button type="button" class="btn btn-secondary" onclick="clearForm('add-task-form')">🧹 Clear Form</button>
+                        </div>
+                    </form>
+                </div>
+                
+                <!-- Add Phase Tab -->
+                <div id="add-phase" class="tab-content">
+                    <h3 style="color: """ + (config.ui.theme_color if config else '#00d4aa') + """; margin-bottom: 20px;">📁 Add New Phase</h3>
+                    
+                    <form id="add-phase-form">
+                        <div class="form-row-thirds">
+                            <div class="form-group">
+                                <label for="phase-id">Phase ID:</label>
+                                <input type="number" id="phase-id" required min="1" placeholder="e.g., 3">
+                            </div>
+                            <div class="form-group">
+                                <label for="phase-name">Phase Name:</label>
+                                <input type="text" id="phase-name" required placeholder="e.g., Trading Bot Core">
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="phase-description">Phase Description:</label>
+                            <textarea id="phase-description" rows="4" required placeholder="What will this phase accomplish?"></textarea>
+                        </div>
+                        
+                        <div style="margin-top: 30px; text-align: center;">
+                            <button type="submit" class="btn btn-success" style="font-size: 16px; padding: 15px 30px;">📁 Create Phase</button>
+                            <button type="button" class="btn btn-secondary" onclick="clearForm('add-phase-form')">🧹 Clear Form</button>
+                        </div>
+                    </form>
+                </div>
+                
+                <!-- Edit Task Tab -->
+                <div id="edit-task" class="tab-content">
+                    <h3 style="color: """ + (config.ui.theme_color if config else '#00d4aa') + """; margin-bottom: 20px;">✏️ Edit Existing Task</h3>
+                    
+                    <div class="form-group">
+                        <label for="edit-task-select">Select Task to Edit:</label>
+                        <select id="edit-task-select" onchange="loadTaskForEdit()">
+                            <option value="">Choose a task...</option>
+    """
+    
+    # Add task options grouped by phase
+    tasks_by_phase = {}
+    for task in tasks_data.get("tasks", []):
+        phase = task.get('phase', 0)
+        if phase not in tasks_by_phase:
+            tasks_by_phase[phase] = []
+        tasks_by_phase[phase].append(task)
+    
+    for phase_id in sorted(tasks_by_phase.keys()):
+        phase_name = f"Phase {phase_id}" if phase_id > 0 else "Legacy"
+        html += f'<optgroup label="{phase_name}">'
+        
+        for task in tasks_by_phase[phase_id]:
+            status_icon = {'pending': '⏳', 'in-progress': '🔄', 'completed': '✅', 'blocked': '🚫'}.get(task.get('status'), '❓')
+            html += f'<option value="{task["id"]}">{status_icon} {task["id"]} - {task.get("description", "")[:50]}</option>'
+        
+        html += '</optgroup>'
+    
+    html += f"""
+                        </select>
+                    </div>
+                    
+                    <form id="edit-task-form" style="display: none;">
+                        <div class="form-group">
+                            <label for="edit-task-description">Description:</label>
+                            <textarea id="edit-task-description" rows="3"></textarea>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="edit-task-output">Expected Output:</label>
+                                <input type="text" id="edit-task-output">
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-task-tests">Test File:</label>
+                                <input type="text" id="edit-task-tests">
+                            </div>
+                        </div>
+                        
+                        <div class="dynamic-fields">
+                            <label style="color: {config.ui.theme_color if config else '#00d4aa'}; font-weight: bold;">Context Files:</label>
+                            <div id="edit-context-fields"></div>
+                            <button type="button" class="add-btn" onclick="addEditContextField()">➕ Add Context File</button>
+                        </div>
+                        
+                        <div class="dynamic-fields">
+                            <label style="color: {config.ui.theme_color if config else '#00d4aa'}; font-weight: bold;">Dependencies:</label>
+                            <div id="edit-dependency-fields"></div>
+                            <button type="button" class="add-btn" onclick="addEditDependencyField()">➕ Add Dependency</button>
+                        </div>
+                        
+                        <div class="dynamic-fields">
+                            <label style="color: {config.ui.theme_color if config else '#00d4aa'}; font-weight: bold;">Acceptance Criteria:</label>
+                            <div id="edit-criteria-fields"></div>
+                            <button type="button" class="add-btn" onclick="addEditCriteriaField()">➕ Add Criteria</button>
+                        </div>
+                        
+                        <div style="margin-top: 30px; text-align: center;">
+                            <button type="submit" class="btn btn-warning" style="font-size: 16px; padding: 15px 30px;">✏️ Update Task</button>
+                            <button type="button" class="btn btn-secondary" onclick="cancelEdit()">❌ Cancel</button>
+                        </div>
+                    </form>
+                </div>
+                
+                <!-- Import Blueprint Tab -->
+                <div id="import-blueprint" class="tab-content">
+                    <h3 style="color: {config.ui.theme_color if config else '#00d4aa'}; margin-bottom: 20px;">📥 Import Blueprint</h3>
+                    
+                    <form id="import-blueprint-form">
+                        <div class="form-group">
+                            <label for="blueprint-source">Blueprint Source:</label>
+                            <select id="blueprint-source" onchange="toggleImportMethod()">
+                                <option value="paste">Paste YAML Content</option>
+                                <option value="file">Upload File</option>
+                            </select>
+                        </div>
+                        
+                        <div id="paste-method" class="form-group">
+                            <label for="blueprint-yaml">Blueprint YAML:</label>
+                            <textarea id="blueprint-yaml" rows="15" placeholder="Paste your blueprint YAML here...
+
+Example:
+phase:
+  id: 3
+  name: 'Trading Engine'
+  description: 'Core trading functionality'
+
+tasks:
+  - id: trading-core
+    description: 'Implement core trading engine'
+    output: 'src/trading_engine.py'
+    acceptance_criteria:
+      - 'Handles buy/sell orders'
+      - 'Real-time price updates'"></textarea>
+                        </div>
+                        
+                        <div id="file-method" class="form-group" style="display: none;">
+                            <label for="blueprint-file">Upload Blueprint File:</label>
+                            <input type="file" id="blueprint-file" accept=".yaml,.yml" onchange="handleFileUpload()">
+                        </div>
+                        
+                        <div style="margin: 20px 0;">
+                            <button type="button" class="btn btn-info" onclick="previewBlueprint()">👁️ Preview Import</button>
+                            <button type="button" class="btn btn-secondary" onclick="validateBlueprint()">✅ Validate YAML</button>
+                        </div>
+                        
+                        <div id="preview-area" style="display: none;">
+                            <h4 style="color: {config.ui.theme_color if config else '#00d4aa'};">Preview:</h4>
+                            <div id="preview-content" class="report-area" style="max-height: 300px;"></div>
+                            
+                            <div style="margin: 20px 0;">
+                                <button type="submit" class="btn btn-primary" style="font-size: 16px; padding: 15px 30px;">📥 Import Blueprint</button>
+                                <button type="button" class="btn btn-secondary" onclick="clearPreview()">🧹 Clear</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                
+                <div id="status-message" style="margin-top: 20px;"></div>
+            </div>
+        </div>
+        
+        <script>
+        let allTasks = {json.dumps(tasks_data.get("tasks", []))};
+        
+        function switchTab(tabName) {{
+            document.querySelectorAll('.tab-content').forEach(tab => {{
+                tab.classList.remove('active');
+            }});
+            document.querySelectorAll('.tab').forEach(tab => {{
+                tab.classList.remove('active');
+            }});
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }}
+        
+        // Blueprint Import Functions
+        function toggleImportMethod() {{
+            const source = document.getElementById('blueprint-source').value;
+            const pasteDiv = document.getElementById('paste-method');
+            const fileDiv = document.getElementById('file-method');
+            
+            if (source === 'paste') {{
+                pasteDiv.style.display = 'block';
+                fileDiv.style.display = 'none';
+            }} else {{
+                pasteDiv.style.display = 'none';
+                fileDiv.style.display = 'block';
+            }}
+            clearPreview();
+        }}
+        
+        function handleFileUpload() {{
+            const fileInput = document.getElementById('blueprint-file');
+            const file = fileInput.files[0];
+            
+            if (file) {{
+                const reader = new FileReader();
+                reader.onload = function(e) {{
+                    document.getElementById('blueprint-yaml').value = e.target.result;
+                    showMessage(`File "${{file.name}}" loaded successfully`, 'success');
+                }};
+                reader.readAsText(file);
+            }}
+        }}
+        
+        function validateBlueprint() {{
+            const yamlContent = getBlueprintContent();
+            if (!yamlContent) {{
+                showMessage('Please provide blueprint content first', 'error');
+                return;
+            }}
+            
+            try {{
+                // Basic YAML validation (client-side)
+                const lines = yamlContent.split('\\n');
+                let hasPhase = false;
+                let hasTasks = false;
+                
+                for (const line of lines) {{
+                    if (line.trim().startsWith('phase:')) hasPhase = true;
+                    if (line.trim().startsWith('tasks:')) hasTasks = true;
+                }}
+                
+                if (!hasPhase) {{
+                    showMessage('❌ Blueprint must contain a "phase:" section', 'error');
+                    return;
+                }}
+                
+                if (!hasTasks) {{
+                    showMessage('❌ Blueprint must contain a "tasks:" section', 'error');
+                    return;
+                }}
+                
+                showMessage('✅ Blueprint YAML structure looks valid', 'success');
+                
+            }} catch (error) {{
+                showMessage(`❌ YAML validation error: ${{error}}`, 'error');
+            }}
+        }}
+        
+        function getBlueprintContent() {{
+            const source = document.getElementById('blueprint-source').value;
+            
+            if (source === 'paste') {{
+                return document.getElementById('blueprint-yaml').value;
+            }} else {{
+                return document.getElementById('blueprint-yaml').value; // File content gets copied here
+            }}
+        }}
+        
+        function previewBlueprint() {{
+            const yamlContent = getBlueprintContent();
+            if (!yamlContent) {{
+                showMessage('Please provide blueprint content first', 'error');
+                return;
+            }}
+            
+            showMessage('Parsing blueprint...', 'info');
+            
+            fetch('/api/preview_blueprint', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{yaml_content: yamlContent}})
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                if (data.success) {{
+                    displayPreview(data.preview);
+                    document.getElementById('preview-area').style.display = 'block';
+                    showMessage(`✅ Found ${{data.task_count}} tasks to import`, 'success');
+                }} else {{
+                    showMessage(`❌ Error: ${{data.error}}`, 'error');
+                }}
+            }})
+            .catch(error => {{
+                showMessage(`❌ Network error: ${{error}}`, 'error');
+            }});
+        }}
+        
+        function displayPreview(preview) {{
+            const previewHtml = `
+                <h5>Phase: ${{preview.phase.name}}</h5>
+                <p><strong>Description:</strong> ${{preview.phase.description}}</p>
+                <p><strong>Tasks to create:</strong> ${{preview.tasks.length}}</p>
+                
+                <h6>Task List:</h6>
+                <ul style="margin-left: 20px;">
+                    ${{preview.tasks.map(task => `
+                        <li><strong>${{task.id}}:</strong> ${{task.description}}
+                            ${{task.depends_on ? `<br><small>Dependencies: ${{task.depends_on.join(', ')}}</small>` : ''}}
+                        </li>
+                    `).join('')}}
+                </ul>
+            `;
+            
+            document.getElementById('preview-content').innerHTML = previewHtml;
+        }}
+        
+        function clearPreview() {{
+            document.getElementById('preview-area').style.display = 'none';
+            document.getElementById('preview-content').innerHTML = '';
+        }}
+        
+        // Original task management functions
+        function addContextField() {{
+            const container = document.getElementById('context-fields');
+            const div = document.createElement('div');
+            div.className = 'field-row';
+            div.innerHTML = `
+                <input type="text" placeholder="e.g., docs/architecture.md">
+                <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+            `;
+            container.appendChild(div);
+        }}
+        
+        function addDependencyField() {{
+            const container = document.getElementById('dependency-fields');
+            const div = document.createElement('div');
+            div.className = 'field-row';
+            div.innerHTML = `
+                <input type="text" placeholder="e.g., other-task-id">
+                <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+            `;
+            container.appendChild(div);
+        }}
+        
+        function addCriteriaField() {{
+            const container = document.getElementById('criteria-fields');
+            const div = document.createElement('div');
+            div.className = 'field-row';
+            div.innerHTML = `
+                <input type="text" placeholder="e.g., Handles 1000+ requests per second">
+                <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+            `;
+            container.appendChild(div);
+        }}
+        
+        function addEditContextField() {{
+            const container = document.getElementById('edit-context-fields');
+            const div = document.createElement('div');
+            div.className = 'field-row';
+            div.innerHTML = `
+                <input type="text" placeholder="e.g., docs/architecture.md">
+                <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+            `;
+            container.appendChild(div);
+        }}
+        
+        function addEditDependencyField() {{
+            const container = document.getElementById('edit-dependency-fields');
+            const div = document.createElement('div');
+            div.className = 'field-row';
+            div.innerHTML = `
+                <input type="text" placeholder="e.g., other-task-id">
+                <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+            `;
+            container.appendChild(div);
+        }}
+        
+        function addEditCriteriaField() {{
+            const container = document.getElementById('edit-criteria-fields');
+            const div = document.createElement('div');
+            div.className = 'field-row';
+            div.innerHTML = `
+                <input type="text" placeholder="e.g., Handles 1000+ requests per second">
+                <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+            `;
+            container.appendChild(div);
+        }}
+        
+        function removeField(button) {{
+            button.parentElement.remove();
+        }}
+        
+        function collectFieldValues(containerId) {{
+            const container = document.getElementById(containerId);
+            const inputs = container.querySelectorAll('input[type="text"]');
+            const values = [];
+            inputs.forEach(input => {{
+                if (input.value.trim()) {{
+                    values.push(input.value.trim());
+                }}
+            }});
+            return values;
+        }}
+        
+        function clearForm(formId) {{
+            document.getElementById(formId).reset();
+            if (formId === 'add-task-form') {{
+                document.getElementById('context-fields').innerHTML = `
+                    <div class="field-row">
+                        <input type="text" placeholder="e.g., docs/architecture.md">
+                        <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+                    </div>
+                `;
+                document.getElementById('dependency-fields').innerHTML = `
+                    <div class="field-row">
+                        <input type="text" placeholder="e.g., other-task-id">
+                        <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+                    </div>
+                `;
+                document.getElementById('criteria-fields').innerHTML = `
+                    <div class="field-row">
+                        <input type="text" placeholder="e.g., Handles 1000+ requests per second">
+                        <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+                    </div>
+                `;
+            }}
+        }}
+        
+        function loadTaskForEdit() {{
+            const taskId = document.getElementById('edit-task-select').value;
+            const form = document.getElementById('edit-task-form');
+            
+            if (!taskId) {{
+                form.style.display = 'none';
+                return;
+            }}
+            
+            const task = allTasks.find(t => t.id === taskId);
+            if (!task) {{
+                showMessage('Task not found', 'error');
+                return;
+            }}
+            
+            document.getElementById('edit-task-description').value = task.description || '';
+            document.getElementById('edit-task-output').value = task.output || '';
+            document.getElementById('edit-task-tests').value = task.tests || '';
+            
+            populateEditFields('edit-context-fields', task.context || [], 'docs/architecture.md');
+            populateEditFields('edit-dependency-fields', task.depends_on || [], 'other-task-id');
+            populateEditFields('edit-criteria-fields', task.acceptance_criteria || [], 'Handles 1000+ requests per second');
+            
+            form.style.display = 'block';
+        }}
+        
+        function populateEditFields(containerId, values, placeholder) {{
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            if (values.length === 0) {{
+                values = [''];
+            }}
+            
+            values.forEach(value => {{
+                const div = document.createElement('div');
+                div.className = 'field-row';
+                div.innerHTML = `
+                    <input type="text" value="${{value}}" placeholder="e.g., ${{placeholder}}">
+                    <button type="button" class="remove-btn" onclick="removeField(this)">✖</button>
+                `;
+                container.appendChild(div);
+            }});
+        }}
+        
+        function cancelEdit() {{
+            document.getElementById('edit-task-select').value = '';
+            document.getElementById('edit-task-form').style.display = 'none';
+        }}
+        
+        function showMessage(message, type) {{
+            const statusDiv = document.getElementById('status-message');
+            statusDiv.innerHTML = `<div class="status-message status-${{type}}">${{message}}</div>`;
+            
+            if (type === 'success') {{
+                setTimeout(() => {{
+                    statusDiv.innerHTML = '';
+                }}, 5000);
+            }}
+        }}
+        
+        // Form submissions
+        document.getElementById('add-task-form').addEventListener('submit', function(e) {{
+            e.preventDefault();
+            
+            const formData = {{
+                phase: parseInt(document.getElementById('task-phase').value),
+                id: document.getElementById('task-id').value,
+                description: document.getElementById('task-description').value,
+                output: document.getElementById('task-output').value,
+                tests: document.getElementById('task-tests').value,
+                context: collectFieldValues('context-fields'),
+                depends_on: collectFieldValues('dependency-fields'),
+                acceptance_criteria: collectFieldValues('criteria-fields')
+            }};
+            
+            if (!formData.phase || !formData.id || !formData.description) {{
+                showMessage('Please fill in required fields (Phase, ID, Description)', 'error');
+                return;
+            }}
+            
+            fetch('/api/add_task', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify(formData)
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                if (data.success) {{
+                    showMessage(`✅ Task '${{formData.id}}' created successfully!`, 'success');
+                    clearForm('add-task-form');
+                }} else {{
+                    showMessage(`❌ Error: ${{data.error}}`, 'error');
+                }}
+            }})
+            .catch(error => {{
+                showMessage(`❌ Network error: ${{error}}`, 'error');
+            }});
+        }});
+        
+        document.getElementById('add-phase-form').addEventListener('submit', function(e) {{
+            e.preventDefault();
+            
+            const formData = {{
+                id: parseInt(document.getElementById('phase-id').value),
+                name: document.getElementById('phase-name').value,
+                description: document.getElementById('phase-description').value
+            }};
+            
+            if (!formData.id || !formData.name || !formData.description) {{
+                showMessage('Please fill in all fields', 'error');
+                return;
+            }}
+            
+            fetch('/api/add_phase', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify(formData)
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                if (data.success) {{
+                    showMessage(`✅ Phase ${{formData.id}} '${{formData.name}}' created successfully!`, 'success');
+                    clearForm('add-phase-form');
+                    setTimeout(() => location.reload(), 2000);
+                }} else {{
+                    showMessage(`❌ Error: ${{data.error}}`, 'error');
+                }}
+            }})
+            .catch(error => {{
+                showMessage(`❌ Network error: ${{error}}`, 'error');
+            }});
+        }});
+        
+        document.getElementById('edit-task-form').addEventListener('submit', function(e) {{
+            e.preventDefault();
+            
+            const taskId = document.getElementById('edit-task-select').value;
+            if (!taskId) {{
+                showMessage('No task selected', 'error');
+                return;
+            }}
+            
+            const formData = {{
+                id: taskId,
+                description: document.getElementById('edit-task-description').value,
+                output: document.getElementById('edit-task-output').value,
+                tests: document.getElementById('edit-task-tests').value,
+                context: collectFieldValues('edit-context-fields'),
+                depends_on: collectFieldValues('edit-dependency-fields'),
+                acceptance_criteria: collectFieldValues('edit-criteria-fields')
+            }};
+            
+            fetch('/api/edit_task', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify(formData)
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                if (data.success) {{
+                    showMessage(`✅ Task '${{taskId}}' updated successfully!`, 'success');
+                    cancelEdit();
+                }} else {{
+                    showMessage(`❌ Error: ${{data.error}}`, 'error');
+                }}
+            }})
+            .catch(error => {{
+                showMessage(`❌ Network error: ${{error}}`, 'error');
+            }});
+        }});
+        
+        // Import Blueprint form submission
+        document.getElementById('import-blueprint-form').addEventListener('submit', function(e) {{
+            e.preventDefault();
+            
+            const yamlContent = getBlueprintContent();
+            if (!yamlContent) {{
+                showMessage('Please provide blueprint content first', 'error');
+                return;
+            }}
+            
+            if (!confirm('Import this blueprint? This will create all tasks shown in the preview.')) {{
+                return;
+            }}
+            
+            showMessage('Importing blueprint...', 'info');
+            
+            fetch('/api/import_blueprint', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{yaml_content: yamlContent}})
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                if (data.success) {{
+                    showMessage(`✅ Successfully imported ${{data.imported_count}} tasks!`, 'success');
+                    document.getElementById('import-blueprint-form').reset();
+                    clearPreview();
+                    
+                    // Offer to redirect to tasks page
+                    setTimeout(() => {{
+                        if (confirm('Blueprint imported successfully! Go to Tasks page to see the new tasks?')) {{
+                            window.location.href = '/tasks';
+                        }}
+                    }}, 2000);
+                }} else {{
+                    showMessage(`❌ Error: ${{data.error}}`, 'error');
+                }}
+            }})
+            .catch(error => {{
+                showMessage(`❌ Network error: ${{error}}`, 'error');
+            }});
+        }});
+        </script>
+    </body>
+    </html>
+    """
+    
+    return html
+
+# TASKS PAGE - Full Implementation
+@app.route('/tasks')
+@requires_auth
+def tasks():
+    tasks_data = task_manager.load_tasks()
+    tasks = tasks_data.get("tasks", [])
+    
+    html = get_base_html("Task Management", "tasks")
+    
+    html += f"""
+            <div class="content-section">
+                <h2 class="section-title">📋 Task Management</h2>
+                <div style="margin-bottom: 20px; text-align: center;">
+                    <button onclick="location.reload()" class="btn btn-info">🔄 Refresh Tasks</button>
+                </div>
+            </div>
+    """
+    
+    # Group tasks by phase
+    tasks_by_phase = {}
+    for task in tasks:
+        phase = task.get('phase', 0)
+        if phase not in tasks_by_phase:
+            tasks_by_phase[phase] = {
+                'pending': [],
+                'in-progress': [],
+                'completed': [],
+                'blocked': []
+            }
+        status = task.get('status', 'pending')
+        tasks_by_phase[phase][status].append(task)
+    
+    # Display tasks grouped by phase
+    for phase_id in sorted(tasks_by_phase.keys()):
+        phase_info = tasks_data.get("phases", {}).get(str(phase_id), {})
+        phase_name = phase_info.get("name", "Legacy Tasks" if phase_id == 0 else f"Phase {phase_id}")
+        
+        # Count tasks in this phase
+        phase_task_count = sum(len(tasks_by_phase[phase_id][status]) for status in ['pending', 'in-progress', 'completed', 'blocked'])
+        
+        if phase_task_count > 0:
+            html += f"""
+            <div class="content-section">
+                <h2 class="section-title">📁 {phase_name}</h2>
+            """
+            
+            # Show tasks by status within the phase
+            status_order = ['in-progress', 'pending', 'blocked', 'completed']
+            status_info = {
+                'pending': ('⏳', 'Pending'),
+                'in-progress': ('🔄', 'In Progress'),
+                'completed': ('✅', 'Completed'),
+                'blocked': ('🚫', 'Blocked')
+            }
+            
+            for status in status_order:
+                task_list = tasks_by_phase[phase_id][status]
+                if task_list:
+                    emoji, label = status_info[status]
+                    html += f'<h4 style="color: {config.ui.theme_color if config else "#00d4aa"}; margin: 20px 0 10px 0;">{emoji} {label} ({len(task_list)})</h4>'
+                    
+                    for task in task_list:
+                        updated = task.get('updated', '')
+                        if updated:
+                            try:
+                                dt = datetime.datetime.fromisoformat(updated.replace('Z', '+00:00'))
+                                time_str = dt.strftime('%m/%d %I:%M%p')
+                            except:
+                                time_str = updated[:10]
+                        else:
+                            time_str = 'Never'
+                        
+                        html += f"""
+                        <div class="task-item">
+                            <div class="task-info">
+                                <div class="task-title">{task['id']}</div>
+                                <div class="task-meta">{task.get('description', 'No description')}</div>
+                                <div class="task-meta">Updated: {time_str}</div>
+                                <div class="task-meta">Output: {task.get('output', 'Not specified')}</div>
+                        """
+                        
+                        if task.get('tests'):
+                            html += f'<div class="task-meta">Tests: {task["tests"]}</div>'
+                        
+                        # Show block reason for blocked tasks
+                        if status == "blocked" and task.get("notes"):
+                            for note in reversed(task.get("notes", [])):
+                                if "Blocked:" in note.get("note", ""):
+                                    html += f'<div class="task-meta" style="color: #ff6b6b; font-weight: bold;">🚫 {note["note"]}</div>'
+                                    break
+                        
+                        html += """
+                            </div>
+                            <div class="task-actions">
+                        """
+                        
+                        # Action buttons based on status
+                        if status == 'pending':
+                            html += f'<button class="btn btn-success" onclick="showStartDialog(\'{task["id"]}\')">🚀 Start Task</button>'
+                        elif status == 'in-progress':
+                            html += f'<button class="btn btn-primary" onclick="completeTask(\'{task["id"]}\')">✅ Complete Task</button>'
+                        
+                        if status not in ['completed', 'blocked']:
+                            html += f'<button class="btn btn-danger" onclick="blockTask(\'{task["id"]}\')">🚫 Block Task</button>'
+                        
+                        # Add enhanced context buttons
+                        if status in ['pending', 'in-progress']:
+                            html += f'<button class="btn btn-secondary" onclick="previewContext(\'{task["id"]}\')">👁️ Preview Context</button>'
+                            html += f'<button class="btn btn-info" onclick="showRelatedTasks(\'{task["id"]}\')">🔗 Related Tasks</button>'
+                        
+                        if status in ['completed', 'blocked', 'in-progress']:
+                            html += f'<a href="/reports?task={task["id"]}" class="btn btn-warning">📈 Generate Report</a>'
+                        
+                        html += """
+                            </div>
+                        </div>
+                        """
+            
+            html += "</div>"
+    
+    if not tasks:
+        html += '<div class="content-section"><div class="empty-state">No tasks found.</div></div>'
+    
+    # Enhanced context modal
+    html += f"""
+        <!-- Modal for enhanced context -->
+        <div id="contextModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeModal()">&times;</span>
+                <div id="modalContent"></div>
+            </div>
+        </div>
+        
+        </div>
+        
+        <script>
+        function showStartDialog(taskId) {{
+            const modalContent = `
+                <h2 style="color: {config.ui.theme_color if config else '#00d4aa'}; margin-bottom: 20px;">🚀 Start Task: ${{taskId}}</h2>
+                <div class="checkbox-container">
+                    <label>
+                        <input type="checkbox" id="useEnhanced" checked>
+                        <span style="font-size: 16px;">✨ Use Enhanced Context</span>
+                    </label>
+                    <p style="color: #ccc; margin-top: 10px; margin-left: 30px; font-size: 14px;">
+                        Includes related tasks, architecture diagrams, and decision history
+                    </p>
+                </div>
+                <div style="margin-top: 20px;">
+                    <button class="btn btn-success" onclick="startTaskWithOptions('${{taskId}}')">🚀 Start Task</button>
+                    <button class="btn btn-secondary" onclick="previewContextInModal('${{taskId}}')">👁️ Preview Context</button>
+                    <button class="btn btn-secondary" onclick="closeModal()">❌ Cancel</button>
+                </div>
+                <div id="previewArea" style="margin-top: 20px;"></div>
+            `;
+            
+            document.getElementById('modalContent').innerHTML = modalContent;
+            document.getElementById('contextModal').style.display = 'block';
+        }}
+        
+        function startTaskWithOptions(taskId) {{
+            const useEnhanced = document.getElementById('useEnhanced').checked;
+            
+            if (!confirm(`Start task '${{taskId}}' with ${{useEnhanced ? 'enhanced' : 'basic'}} context?\\n\\nThis will create a context file for Claude.`)) return;
+            
+            fetch('/api/start_task', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{
+                    task_id: taskId,
+                    enhanced: useEnhanced
+                }})
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                if (data.success) {{
+                    alert(`✅ Task '${{taskId}}' started successfully!\\n\\n📄 ${{data.enhanced ? 'Enhanced' : 'Basic'}} context file created.`);
+                    location.reload();
+                }} else {{
+                    alert(`❌ Error starting task: ${{data.error}}`);
+                }}
+            }})
+            .catch(error => {{
+                alert(`❌ Network error: ${{error}}`);
+            }});
+        }}
+        
+        function startTask(taskId) {{
+            // Legacy function for backward compatibility
+            showStartDialog(taskId);
+        }}
+        
+        function previewContext(taskId) {{
+            fetch(`/api/preview_context/${{taskId}}`)
+                .then(response => response.json())
+                .then(data => {{
+                    const modalContent = `
+                        <h2 style="color: {config.ui.theme_color if config else '#00d4aa'};">📄 Context Preview: ${{taskId}}</h2>
+                        <div class="report-area" style="max-height: 500px;">
+                            ${{data.context.replace(/\\n/g, '\\n')}}
+                        </div>
+                        <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+                    `;
+                    document.getElementById('modalContent').innerHTML = modalContent;
+                    document.getElementById('contextModal').style.display = 'block';
+                }})
+                .catch(error => {{
+                    alert(`❌ Error loading context: ${{error}}`);
+                }});
+        }}
+        
+        function previewContextInModal(taskId) {{
+            const useEnhanced = document.getElementById('useEnhanced').checked;
+            
+            fetch(`/api/preview_context/${{taskId}}?enhanced=${{useEnhanced}}`)
+                .then(response => response.json())
+                .then(data => {{
+                    document.getElementById('previewArea').innerHTML = `
+                        <h3 style="color: {config.ui.theme_color if config else '#00d4aa'};">Preview:</h3>
+                        <div class="report-area" style="max-height: 300px;">
+                            ${{data.context.replace(/\\n/g, '\\n')}}
+                        </div>
+                    `;
+                }})
+                .catch(error => {{
+                    document.getElementById('previewArea').innerHTML = `<p class="error">Error loading preview</p>`;
+                }});
+        }}
+        
+        function showRelatedTasks(taskId) {{
+            fetch(`/api/related_tasks/${{taskId}}`)
+                .then(response => response.json())
+                .then(data => {{
+                    let relatedHtml = '<h3 style="color: {config.ui.theme_color if config else '#00d4aa'};">🔗 Related Tasks</h3>';
+                    
+                    if (data.related_tasks && data.related_tasks.length > 0) {{
+                        relatedHtml += '<div class="related-tasks">';
+                        data.related_tasks.forEach(task => {{
+                            const statusIcon = task.status === 'completed' ? '✅' : '🔄';
+                            relatedHtml += `
+                                <div class="related-task">
+                                    <strong>${{statusIcon}} ${{task.id}}</strong>: ${{task.description}}
+                                    <div style="color: #888; font-size: 12px; margin-top: 5px;">
+                                        Phase ${{task.phase}} • Status: ${{task.status}}
+                                    </div>
+                                </div>
+                            `;
+                        }});
+                        relatedHtml += '</div>';
+                    }} else {{
+                        relatedHtml += '<p style="color: #888;">No related tasks found.</p>';
+                    }}
+                    
+                    relatedHtml += '<button class="btn btn-secondary" onclick="closeModal()" style="margin-top: 20px;">Close</button>';
+                    
+                    document.getElementById('modalContent').innerHTML = relatedHtml;
+                    document.getElementById('contextModal').style.display = 'block';
+                }})
+                .catch(error => {{
+                    alert(`❌ Error loading related tasks: ${{error}}`);
+                }});
+        }}
+        
+        function closeModal() {{
+            document.getElementById('contextModal').style.display = 'none';
+        }}
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {{
+            const modal = document.getElementById('contextModal');
+            if (event.target == modal) {{
+                modal.style.display = 'none';
+            }}
+        }}
+        
+        function completeTask(taskId) {{
+            const message = prompt(`Complete task '${{taskId}}'\\n\\nOptional commit message:`);
+            if (message === null) return; // User cancelled
+            
+            fetch('/api/complete_task', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{task_id: taskId, message: message || ''}})
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                if (data.success) {{
+                    alert(`✅ Task '${{taskId}}' completed and committed to git!`);
+                    location.reload();
+                }} else {{
+                    alert(`❌ Error completing task: ${{data.error}}`);
+                }}
+            }})
+            .catch(error => {{
+                alert(`❌ Network error: ${{error}}`);
+            }});
+        }}
+        
+        function blockTask(taskId) {{
+            const reason = prompt(`Block task '${{taskId}}'\\n\\nReason for blocking:`);
+            if (!reason) return;
+            
+            fetch('/api/block_task', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{task_id: taskId, reason: reason}})
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                if (data.success) {{
+                    alert(`🚫 Task '${{taskId}}' blocked successfully!`);
+                    location.reload();
+                }} else {{
+                    alert(`❌ Error blocking task: ${{data.error}}`);
+                }}
+            }})
+            .catch(error => {{
+                alert(`❌ Network error: ${{error}}`);
+            }});
+        }}
+        </script>
+    </body>
+    </html>
+    """
+    
+    return html
+
+@app.route('/phases')
+@requires_auth
+def phases():
+    tasks_data = task_manager.load_tasks()
+    phase_progress = task_manager.get_phase_progress()
+    
+    html = get_base_html("Phase Overview", "phases")
+    
+    html += """
+            <div class="content-section">
+                <h2 class="section-title">📁 Phase Management</h2>
+                <p style="color: #ccc; margin-bottom: 20px;">Track progress across all project phases</p>
+            </div>
+    """
+    
+    for phase_id in sorted(phase_progress.keys()):
+        progress = phase_progress[phase_id]
+        phase_info = tasks_data.get("phases", {}).get(str(phase_id), {})
+        
+        html += f"""
+            <div class="content-section">
+                <div class="phase-header">
+                    <div>
+                        <h3 class="phase-title">📁 Phase {phase_id}: {progress['name']}</h3>
+                        {f'<p style="color: #ccc; margin: 10px 0;">{phase_info.get("description", "")}</p>' if phase_info.get("description") else ''}
+                    </div>
+                    <div class="phase-progress">
+                        <div class="progress-bar" style="width: 300px;">
+                            <div class="progress-fill" style="width: {progress['percentage']}%"></div>
+                        </div>
+                        <div class="progress-text" style="font-size: 18px; color: {config.ui.theme_color if config else '#00d4aa'};">{progress['percentage']:.0f}%</div>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 20px 0;">
+                    <div style="text-align: center; padding: 15px; background: rgba(0, 204, 0, 0.1); border-radius: 8px;">
+                        <div style="font-size: 24px; font-weight: bold; color: #00ff00;">{progress['completed']}</div>
+                        <div style="color: #ccc;">Completed</div>
+                    </div>
+                    <div style="text-align: center; padding: 15px; background: rgba(0, 102, 204, 0.1); border-radius: 8px;">
+                        <div style="font-size: 24px; font-weight: bold; color: #0099ff;">{progress['in_progress']}</div>
+                        <div style="color: #ccc;">In Progress</div>
+                    </div>
+                    <div style="text-align: center; padding: 15px; background: rgba(255, 140, 0, 0.1); border-radius: 8px;">
+                        <div style="font-size: 24px; font-weight: bold; color: #ff8c00;">{progress['pending']}</div>
+                        <div style="color: #ccc;">Pending</div>
+                    </div>
+                    {f'<div style="text-align: center; padding: 15px; background: rgba(204, 0, 0, 0.1); border-radius: 8px;"><div style="font-size: 24px; font-weight: bold; color: #ff6b6b;">{progress["blocked"]}</div><div style="color: #ccc;">Blocked</div></div>' if progress['blocked'] > 0 else ''}
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <a href="/tasks" class="btn btn-primary">📋 View Phase Tasks</a>
+                    <a href="/generator?phase={phase_id}" class="btn btn-success">🏗️ Generate Blueprint</a>
+                    {f'<span style="color: #888; margin-left: 15px;">Source: {phase_info.get("file", "tasks.yaml")}</span>' if phase_id > 0 else ''}
+                </div>
+            </div>
+        """
+    
+    html += """
+        </div>
+    </body>
+    </html>
+    """
+    
+    return html
+
+@app.route('/generator')
+@requires_auth
+def generator():
+    phase_progress = task_manager.get_phase_progress()
+    selected_phase = request.args.get('phase', '1')
+    
+    html = get_base_html("Blueprint Generator", "generator")
+    
+    html += f"""
+            <div class="content-section">
+                <h2 class="section-title">🏗️ Blueprint Generator</h2>
+                <p style="color: #ccc; margin-bottom: 20px;">Generate comprehensive documentation for Claude session handoffs</p>
+                
+                <div class="form-group">
+                    <label for="phase-select">Select Phase:</label>
+                    <select id="phase-select">
+    """
+    
+    # Add phase options
+    for phase_id in sorted(phase_progress.keys()):
+        progress = phase_progress[phase_id]
+        selected = 'selected' if str(phase_id) == selected_phase else ''
+        status_emoji = "✅" if progress['percentage'] == 100 else "🔄" if progress['completed'] > 0 else "⏳"
+        html += f'<option value="{phase_id}" {selected}>{status_emoji} Phase {phase_id}: {progress["name"]} ({progress["percentage"]:.0f}%)</option>'
+    
+    html += """
+                    </select>
+                </div>
+            </div>
+            
+            <div class="generator-grid">
+                <div class="generator-card">
+                    <div class="card-title">📋 Phase Blueprint</div>
+                    <div class="card-description">Complete technical blueprint with tasks, architecture, and progress for the selected phase</div>
+                    <button class="btn btn-primary" onclick="generateDocument('phase')" style="width: 100%;">🏗️ Generate Phase Blueprint</button>
+                </div>
+                
+                <div class="generator-card">
+                    <div class="card-title">🤝 Session Handoff</div>
+                    <div class="card-description">Comprehensive handoff document for new Claude sessions with all context needed</div>
+                    <button class="btn btn-success" onclick="generateDocument('handoff')" style="width: 100%;">📋 Generate Session Handoff</button>
+                </div>
+                
+                <div class="generator-card">
+                    <div class="card-title">🏗️ System Architecture</div>
+                    <div class="card-description">Current system architecture analysis with component connections and data flows</div>
+                    <button class="btn btn-info" onclick="generateDocument('architecture')" style="width: 100%;">🏗️ Generate Architecture Map</button>
+                </div>
+            </div>
+            
+            <div class="content-section">
+                <h2 class="section-title">📊 Generation Controls</h2>
+                <div style="text-align: center; margin: 20px 0;">
+                    <button class="btn btn-warning" onclick="copyToClipboard()">📋 Copy Generated Content</button>
+                    <button class="btn btn-secondary" onclick="downloadAsFile()">💾 Download as File</button>
+                    <button class="btn btn-info" onclick="viewSavedFiles()">📁 View Saved Files</button>
+                </div>
+                
+                <div id="status-message"></div>
+            </div>
+            
+            <div class="content-section">
+                <h2 class="section-title">📄 Generated Content</h2>
+                <div id="generated-content" class="report-area">
+Select a blueprint type above to generate comprehensive documentation...
+
+🏗️ Phase Blueprint: Complete technical overview of the selected phase
+🤝 Session Handoff: Everything needed for Claude session continuity  
+🏗️ System Architecture: Technical component mapping and data flows
+
+Generated documents are automatically saved to docs/blueprints/ for future reference.
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        let currentContent = '';
+        let currentFilename = '';
+        
+        function generateDocument(docType) {
+            const phaseId = document.getElementById('phase-select').value;
+            
+            showMessage(`Generating ${docType} documentation...`, 'info');
+            
+            const requestData = {
+                type: docType,
+                phase_id: parseInt(phaseId)
+            };
+            
+            fetch('/api/generate_blueprint', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(requestData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    currentContent = data.content;
+                    currentFilename = data.filename || data.filepath || `${docType}_${phaseId}.md`;
+                    
+                    document.getElementById('generated-content').textContent = currentContent;
+                    showMessage(`✅ ${docType} documentation generated successfully!`, 'success');
+                    
+                    if (data.filepath) {
+                        showMessage(`💾 Saved to: ${data.filepath}`, 'info');
+                    }
+                } else {
+                    showMessage(`❌ Error: ${data.error}`, 'error');
+                }
+            })
+            .catch(error => {
+                showMessage(`❌ Network error: ${error}`, 'error');
+            });
+        }
+        
+        function copyToClipboard() {
+            if (!currentContent) {
+                showMessage('Generate content first before copying', 'error');
+                return;
+            }
+            
+            navigator.clipboard.writeText(currentContent).then(() => {
+                showMessage('📋 Content copied to clipboard! Ready for Claude handoff.', 'success');
+            }).catch(() => {
+                showMessage('❌ Failed to copy to clipboard', 'error');
+            });
+        }
+        
+        function downloadAsFile() {
+            if (!currentContent) {
+                showMessage('Generate content first before downloading', 'error');
+                return;
+            }
+            
+            const blob = new Blob([currentContent], { type: 'text/markdown' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = currentFilename || 'blueprint.md';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            showMessage(`💾 Downloaded: ${a.download}`, 'success');
+        }
+        
+        function viewSavedFiles() {
+            showMessage('📁 Generated files are saved to: docs/blueprints/ and docs/sessions/', 'info');
+        }
+        
+        function showMessage(message, type) {
+            const statusDiv = document.getElementById('status-message');
+            statusDiv.innerHTML = `<div class="status-message status-${type}">${message}</div>`;
+            
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    statusDiv.innerHTML = '';
+                }, 5000);
+            }
+        }
+        </script>
+    </body>
+    </html>
+    """
+    
+    return html
+
+@app.route('/reports')
+@requires_auth
+def reports():
+    tasks_data = task_manager.load_tasks()
+    tasks = tasks_data.get("tasks", [])
+    reportable_tasks = [t for t in tasks if t.get('status') in ['completed', 'blocked', 'in-progress']]
+    
+    selected_task = request.args.get('task', '')
+    
+    html = get_base_html("Claude Reports", "reports")
+    
+    html += f"""
+            <div class="content-section">
+                <h2 class="section-title">📈 Claude Handoff Reports</h2>
+                <p style="color: #ccc; margin-bottom: 20px;">Generate status reports for Claude session handoffs</p>
+                
+                <div class="form-group">
+                    <label for="task-select">Select Task:</label>
+                    <select id="task-select" onchange="updateSummary()">
+                        <option value="">Choose a task...</option>
+    """
+    
+    # Group tasks by phase for better organization
+    tasks_by_phase = {}
+    for task in reportable_tasks:
+        phase = task.get('phase', 0)
+        if phase not in tasks_by_phase:
+            tasks_by_phase[phase] = []
+        tasks_by_phase[phase].append(task)
+    
+    for phase_id in sorted(tasks_by_phase.keys()):
+        phase_name = f"Phase {phase_id}" if phase_id > 0 else "Legacy"
+        html += f'<optgroup label="{phase_name}">'
+        
+        for task in tasks_by_phase[phase_id]:
+            selected = 'selected' if task['id'] == selected_task else ''
+            status_icon = {'pending': '⏳', 'in-progress': '🔄', 'completed': '✅', 'blocked': '🚫'}.get(task.get('status'), '❓')
+            html += f'<option value="{task["id"]}" {selected}>{status_icon} {task["id"]} - {task.get("description", "")[:60]}</option>'
+        
+        html += '</optgroup>'
+    
+    html += """
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="summary-input">Custom Summary (optional):</label>
+                    <textarea id="summary-input" rows="4" placeholder="Leave empty for auto-generated summary based on task description"></textarea>
+                </div>
+                
+                <div style="text-align: center; margin: 20px 0;">
+                    <button class="btn btn-primary" onclick="generateReport()">📈 Generate Report</button>
+                    <button class="btn btn-info" onclick="copyReport()">📋 Copy to Clipboard</button>
+                    <button class="btn btn-success" onclick="openReportsFolder()">📁 Open Reports Folder</button>
+                </div>
+                
+                <div id="status-message"></div>
+                
+                <div class="form-group">
+                    <label>Generated Report (For Claude Handoff):</label>
+                    <div id="report-output" class="report-area">
+Click "Generate Report" to create a Claude handoff report...
+
+The report will include:
+• Task ID and phase information
+• Current status and progress
+• Summary of work completed
+• Files/artifacts created
+• Context for continuing work
+
+Reports are automatically saved to: claude_reports/Claude_Handoff_taskname_MMDD_HHMM.txt
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        function updateSummary() {
+            const taskSelect = document.getElementById('task-select');
+            const summaryInput = document.getElementById('summary-input');
+            
+            if (taskSelect.value) {
+                const selectedOption = taskSelect.options[taskSelect.selectedIndex];
+                const taskDesc = selectedOption.text.split(' - ')[1] || '';
+                if (taskDesc) {
+                    summaryInput.placeholder = `Auto-generated: "Implemented ${taskDesc}"`;
+                }
+            }
+        }
+        
+        function generateReport() {
+            const taskId = document.getElementById('task-select').value;
+            const summary = document.getElementById('summary-input').value;
+            
+            if (!taskId) {
+                showMessage('Please select a task first', 'error');
+                return;
+            }
+            
+            showMessage('Generating report...', 'info');
+            
+            fetch('/api/generate_report', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({task_id: taskId, summary: summary})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('report-output').textContent = data.report;
+                    showMessage(`✅ Report generated and saved as: ${data.filename}`, 'success');
+                } else {
+                    showMessage(`❌ Error: ${data.error}`, 'error');
+                }
+            })
+            .catch(error => {
+                showMessage(`❌ Network error: ${error}`, 'error');
+            });
+        }
+        
+        function copyReport() {
+            const reportText = document.getElementById('report-output').textContent;
+            if (!reportText || reportText.includes('Click "Generate Report"')) {
+                showMessage('Generate a report first', 'error');
+                return;
+            }
+            
+            navigator.clipboard.writeText(reportText).then(() => {
+                showMessage('📋 Report copied to clipboard! Ready for Claude handoff.', 'success');
+            }).catch(() => {
+                showMessage('❌ Failed to copy to clipboard', 'error');
+            });
+        }
+        
+        function openReportsFolder() {
+            showMessage('📁 Reports are saved to: claude_reports/ folder in your project directory', 'info');
+        }
+        
+        function showMessage(message, type) {
+            const statusDiv = document.getElementById('status-message');
+            statusDiv.innerHTML = `<div class="status-message status-${type}">${message}</div>`;
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusDiv.innerHTML = '';
+                }, 5000);
+            }
+        }
+        
+        window.onload = function() {
+            updateSummary();
+        };
+        </script>
+    </body>
+    </html>
+    """
+    
+    return html
+
+@app.route('/help')
+@requires_auth
+def help_page():
+    html = get_base_html("Help & User Guide", "help")
+    
+    html += f"""
+            <div class="content-section">
+                <h2 class="section-title">📖 Bruce User Guide - Complete with Blueprint Import</h2>
+                
+                <h3 style="color: {config.ui.theme_color if config else '#00d4aa'}; margin-top: 25px;">🆕 What's New: Blueprint Import</h3>
+                <ul style="margin-left: 20px; line-height: 1.8;">
+                    <li><strong>Design-First Workflow:</strong> Plan entire phases before implementation</li>
+                    <li><strong>Bulk Task Creation:</strong> Import multiple related tasks at once</li>
+                    <li><strong>YAML Blueprint Format:</strong> Structured, readable phase definitions</li>
+                    <li><strong>Preview Before Import:</strong> See exactly what will be created</li>
+                    <li><strong>Dependency Mapping:</strong> Automatic task relationship setup</li>
+                </ul>
+                
+                <h3 style="color: {config.ui.theme_color if config else '#00d4aa'}; margin-top: 25px;">📥 How to Use Blueprint Import</h3>
+                <ol style="margin-left: 20px; line-height: 2;">
+                    <li><strong>Go to Manage Page:</strong> Click the "Import Blueprint" tab</li>
+                    <li><strong>Choose Source:</strong> Paste YAML content or upload a .yml file</li>
+                    <li><strong>Preview Import:</strong> Click "Preview" to see all tasks that will be created</li>
+                    <li><strong>Validate Format:</strong> Use "Validate YAML" to check structure</li>
+                    <li><strong>Import Blueprint:</strong> Click "Import" to create all tasks at once</li>
+                </ol>
+                
+                <h3 style="color: {config.ui.theme_color if config else '#00d4aa'}; margin-top: 25px;">📝 Blueprint YAML Format</h3>
+                <div class="report-area" style="max-height: 400px;">
+phase:
+  id: 3
+  name: "Trading Engine Phase"
+  description: "Build core trading functionality"
+
+tasks:
+  - id: trading-core
+    description: "Implement core trading engine"
+    output: "src/trading_engine.py with full functionality"
+    depends_on: []
+    acceptance_criteria:
+      - "Handles buy/sell orders correctly"
+      - "Real-time price updates working"
+      - "Risk management integrated"
+  
+  - id: trading-ui
+    description: "Build trading interface"
+    output: "Trading dashboard UI component"
+    depends_on: ["trading-core"]
+    acceptance_criteria:
+      - "User can place orders"
+      - "Portfolio view functional"
+      - "Real-time updates display"
+                </div>
+                
+                <h3 style="color: {config.ui.theme_color if config else '#00d4aa'}; margin-top: 25px;">🎯 Enhanced Workflow with Blueprint Import</h3>
+                <ol style="margin-left: 20px; line-height: 2;">
+                    <li><strong>Plan Phase:</strong> Design entire phase structure in YAML format</li>
+                    <li><strong>Import Tasks:</strong> Use blueprint import to create all tasks instantly</li>
+                    <li><strong>Manage Dependencies:</strong> Tasks automatically linked based on blueprint</li>
+                    <li><strong>Start Development:</strong> Begin work with enhanced context and clear structure</li>
+                    <li><strong>Track Progress:</strong> Monitor phase completion with visual progress bars</li>
+                </ol>
+                
+                <div style="background: rgba(0, 212, 170, 0.1); border: 1px solid {config.ui.theme_color if config else '#00d4aa'}; border-radius: 8px; padding: 20px; margin: 25px 0;">
+                    <h4 style="color: {config.ui.theme_color if config else '#00d4aa'};">🎯 Pro Tip: Blueprint Templates</h4>
+                    <p>Create blueprint templates for common project patterns! Save YAML blueprints for "Web App Setup", "API Development", "Database Design" phases and reuse them across projects. This makes starting new phases incredibly fast.</p>
+                </div>
+                
+                <div style="background: rgba(0, 212, 170, 0.1); border: 1px solid {config.ui.theme_color if config else '#00d4aa'}; border-radius: 8px; padding: 20px; margin: 25px 0;">
+                    <h4 style="color: {config.ui.theme_color if config else '#00d4aa'};">💡 Pro Tip: Data Migration Projects</h4>
+                    <p>Perfect for your data organization work! Create blueprints for common data migration patterns: "Extract Phase", "Transform Phase", "Load Phase". Each blueprint can include tasks for validation, cleanup, and verification steps.</p>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return html
+
+# API ENDPOINTS
+@app.route('/api/create_config', methods=['POST'])
+@requires_auth
+def create_config():
+    """Create default config file"""
+    try:
+        if config:
+            config_file = config.create_default_config()
+            return jsonify({"success": True, "config_file": str(config_file)})
+        else:
+            return jsonify({"success": False, "error": "Config manager not available"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/validate_config')
+@requires_auth
+def validate_config():
+    """Validate current configuration"""
+    try:
+        if config:
+            is_valid = config.validate_config()
+            return jsonify({"valid": is_valid})
+        else:
+            return jsonify({"valid": False, "error": "Config manager not available"})
+    except Exception as e:
+        return jsonify({"valid": False, "error": str(e)})
+
+@app.route('/api/add_task', methods=['POST'])
+@requires_auth
+def add_task():
+    """Add a new task via API"""
+    try:
+        data = request.json
+        cmd_parts = [
+            "add-task",
+            f"--phase {data['phase']}",
+            f"--id \"{data['id']}\"",
+            f"--description \"{data['description']}\""
+        ]
+        
+        if data.get('output'):
+            cmd_parts.append(f"--output \"{data['output']}\"")
+        if data.get('tests'):
+            cmd_parts.append(f"--tests \"{data['tests']}\"")
+        if data.get('context') and any(data['context']):
+            context_items = [f'"{item}"' for item in data['context'] if item.strip()]
+            if context_items:
+                cmd_parts.append(f"--context {' '.join(context_items)}")
+        if data.get('depends_on') and any(data['depends_on']):
+            dep_items = [f'"{item}"' for item in data['depends_on'] if item.strip()]
+            if dep_items:
+                cmd_parts.append(f"--depends-on {' '.join(dep_items)}")
+        if data.get('acceptance_criteria') and any(data['acceptance_criteria']):
+            criteria_items = [f'"{item}"' for item in data['acceptance_criteria'] if item.strip()]
+            if criteria_items:
+                cmd_parts.append(f"--acceptance-criteria {' '.join(criteria_items)}")
+        
+        command = ' '.join(cmd_parts)
+        result = run_cli_command(command)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/add_phase', methods=['POST'])
+@requires_auth
+def add_phase():
+    """Add a new phase via API"""
+    try:
+        data = request.json
+        command = f'add-phase --id {data["id"]} --name "{data["name"]}" --description "{data["description"]}"'
+        result = run_cli_command(command)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/edit_task', methods=['POST'])
+@requires_auth
+def edit_task():
+    """Edit an existing task via API"""
+    try:
+        data = request.json
+        cmd_parts = ["edit-task", f"--id \"{data['id']}\""]
+        
+        if data.get('description'):
+            cmd_parts.append(f"--description \"{data['description']}\"")
+        if data.get('output'):
+            cmd_parts.append(f"--output \"{data['output']}\"")
+        if data.get('tests'):
+            cmd_parts.append(f"--tests \"{data['tests']}\"")
+        if data.get('context') is not None:
+            context_items = [f'"{item}"' for item in data['context'] if item.strip()]
+            if context_items:
+                cmd_parts.append(f"--context {' '.join(context_items)}")
+            else:
+                cmd_parts.append("--context")
+        if data.get('depends_on') is not None:
+            dep_items = [f'"{item}"' for item in data['depends_on'] if item.strip()]
+            if dep_items:
+                cmd_parts.append(f"--depends-on {' '.join(dep_items)}")
+            else:
+                cmd_parts.append("--depends-on")
+        if data.get('acceptance_criteria') is not None:
+            criteria_items = [f'"{item}"' for item in data['acceptance_criteria'] if item.strip()]
+            if criteria_items:
+                cmd_parts.append(f"--acceptance-criteria {' '.join(criteria_items)}")
+            else:
+                cmd_parts.append("--acceptance-criteria")
+        
+        command = ' '.join(cmd_parts)
+        result = run_cli_command(command)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+# NEW BLUEPRINT IMPORT API ENDPOINTS
+@app.route('/api/preview_blueprint', methods=['POST'])
+@requires_auth
+def preview_blueprint():
+    """Preview blueprint before import"""
+    try:
+        data = request.json
+        yaml_content = data.get('yaml_content', '')
+        
+        if not yaml_content:
+            return jsonify({"success": False, "error": "No YAML content provided"})
+        
+        # Parse YAML
+        try:
+            blueprint_data = yaml.safe_load(yaml_content)
+        except yaml.YAMLError as e:
+            return jsonify({"success": False, "error": f"Invalid YAML format: {str(e)}"})
+        
+        # Validate blueprint structure
+        if not isinstance(blueprint_data, dict):
+            return jsonify({"success": False, "error": "Blueprint must be a YAML object"})
+        
+        if 'phase' not in blueprint_data:
+            return jsonify({"success": False, "error": "Blueprint must contain a 'phase' section"})
+        
+        if 'tasks' not in blueprint_data:
+            return jsonify({"success": False, "error": "Blueprint must contain a 'tasks' section"})
+        
+        phase_info = blueprint_data['phase']
+        tasks = blueprint_data['tasks']
+        
+        # Validate phase info
+        if not phase_info.get('id'):
+            return jsonify({"success": False, "error": "Phase must have an 'id'"})
+        
+        if not phase_info.get('name'):
+            return jsonify({"success": False, "error": "Phase must have a 'name'"})
+        
+        # Validate tasks
+        if not isinstance(tasks, list) or len(tasks) == 0:
+            return jsonify({"success": False, "error": "Tasks must be a non-empty list"})
+        
+        for i, task in enumerate(tasks):
+            if not isinstance(task, dict):
+                return jsonify({"success": False, "error": f"Task {i+1} must be an object"})
+            
+            if not task.get('id'):
+                return jsonify({"success": False, "error": f"Task {i+1} must have an 'id'"})
+            
+            if not task.get('description'):
+                return jsonify({"success": False, "error": f"Task {i+1} must have a 'description'"})
+        
+        # Check for duplicate task IDs
+        task_ids = [task['id'] for task in tasks]
+        if len(task_ids) != len(set(task_ids)):
+            return jsonify({"success": False, "error": "Duplicate task IDs found in blueprint"})
+        
+        # Check if phase ID already exists
+        existing_tasks = task_manager.load_tasks()
+        existing_phases = existing_tasks.get('phases', {})
+        
+        if str(phase_info['id']) in existing_phases:
+            return jsonify({"success": False, "error": f"Phase {phase_info['id']} already exists"})
+        
+        # Check for existing task IDs
+        existing_task_ids = [t['id'] for t in existing_tasks.get('tasks', [])]
+        duplicate_ids = [task_id for task_id in task_ids if task_id in existing_task_ids]
+        
+        if duplicate_ids:
+            return jsonify({"success": False, "error": f"Task IDs already exist: {', '.join(duplicate_ids)}"})
+        
+        # Create preview
+        preview = {
+            "phase": {
+                "id": phase_info['id'],
+                "name": phase_info['name'],
+                "description": phase_info.get('description', '')
+            },
+            "tasks": []
+        }
+        
+        for task in tasks:
+            preview["tasks"].append({
+                "id": task['id'],
+                "description": task['description'],
+                "output": task.get('output', ''),
+                "depends_on": task.get('depends_on', []),
+                "acceptance_criteria": task.get('acceptance_criteria', [])
+            })
+        
+        return jsonify({
+            "success": True,
+            "preview": preview,
+            "task_count": len(tasks)
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/import_blueprint', methods=['POST'])
+@requires_auth
+def import_blueprint():
+    """Import blueprint and create all tasks"""
+    try:
+        data = request.json
+        yaml_content = data.get('yaml_content', '')
+        
+        if not yaml_content:
+            return jsonify({"success": False, "error": "No YAML content provided"})
+        
+        # Parse and validate YAML (same validation as preview)
+        try:
+            blueprint_data = yaml.safe_load(yaml_content)
+        except yaml.YAMLError as e:
+            return jsonify({"success": False, "error": f"Invalid YAML format: {str(e)}"})
+        
+        phase_info = blueprint_data['phase']
+        tasks = blueprint_data['tasks']
+        
+        # Create phase file
+        phase_filename = f"phase{phase_info['id']}_{phase_info['name'].lower().replace(' ', '_')}.yml"
+        phase_file_path = task_manager.phases_dir / phase_filename
+        
+        # Build phase data structure
+        phase_data = {
+            'phase': {
+                'id': phase_info['id'],
+                'name': phase_info['name'],
+                'description': phase_info.get('description', '')
+            },
+            'tasks': []
+        }
+        
+        # Add context from original blueprint if available
+        if 'context' in blueprint_data['phase']:
+            phase_data['phase']['context'] = blueprint_data['phase']['context']
+        
+        # Process tasks
+        for task in tasks:
+            task_data = {
+                'id': task['id'],
+                'description': task['description'],
+                'status': 'pending'
+            }
+            
+            # Add optional fields
+            if task.get('output'):
+                task_data['output'] = task['output']
+            
+            if task.get('depends_on'):
+                task_data['depends_on'] = task['depends_on']
+            
+            if task.get('acceptance_criteria'):
+                task_data['acceptance_criteria'] = task['acceptance_criteria']
+            
+            if task.get('context'):
+                task_data['context'] = task['context']
+            
+            if task.get('why'):
+                task_data['why'] = task['why']
+            
+            if task.get('connects_to'):
+                task_data['connects_to'] = task['connects_to']
+            
+            if task.get('implementation_notes'):
+                task_data['implementation_notes'] = task['implementation_notes']
+            
+            phase_data['tasks'].append(task_data)
+        
+        # Write phase file
+        with open(phase_file_path, 'w') as f:
+            yaml.dump(phase_data, f, default_flow_style=False, indent=2, sort_keys=False)
+        
+        return jsonify({
+            "success": True,
+            "imported_count": len(tasks),
+            "phase_file": phase_filename,
+            "phase_id": phase_info['id'],
+            "phase_name": phase_info['name']
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/start_task', methods=['POST'])
+@requires_auth
+def start_task():
+    data = request.json
+    task_id = data.get('task_id')
+    use_enhanced = data.get('enhanced', True)
+    
+    if not task_id:
+        return jsonify({"success": False, "error": "No task ID provided"})
+    
+    if use_enhanced:
+        result = run_cli_command(f"start {task_id}")
+    else:
+        result = run_cli_command(f"start {task_id} --basic")
+    
+    result['enhanced'] = use_enhanced
+    return jsonify(result)
+
+@app.route('/api/preview_context/<task_id>')
+@requires_auth
+def preview_context(task_id):
+    """Preview the enhanced context that would be generated"""
+    try:
+        use_enhanced = request.args.get('enhanced', 'true').lower() == 'true'
+        
+        if use_enhanced:
+            context_content = task_manager.generate_enhanced_context(task_id)
+        else:
+            tasks_data = task_manager.load_tasks()
+            task = next((t for t in tasks_data['tasks'] if t['id'] == task_id), None)
+            
+            if not task:
+                return jsonify({'error': 'Task not found'}), 404
+            
+            project_info = task_manager.get_project_info()
+            context_content = f"# Context for Task: {task_id}\n\n"
+            context_content += f"**Project:** {project_info['name']}\n"
+            context_content += f"**Phase:** {task.get('phase', 0)} - {task.get('phase_name', 'Legacy')}\n"
+            context_content += f"**Description:** {task['description']}\n\n"
+            context_content += f"**Expected Output:** {task.get('output', 'Not specified')}\n\n"
+            
+            if task.get('acceptance_criteria'):
+                context_content += "**Acceptance Criteria:**\n"
+                for criteria in task['acceptance_criteria']:
+                    context_content += f"- {criteria}\n"
+                context_content += "\n"
+        
+        return jsonify({
+            'task_id': task_id,
+            'related_tasks': formatted_tasks
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/complete_task', methods=['POST'])
+@requires_auth
+def complete_task():
+    data = request.json
+    task_id = data.get('task_id')
+    message = data.get('message', '')
+    
+    if not task_id:
+        return jsonify({"success": False, "error": "No task ID provided"})
+    
+    if message:
+        command = f'commit {task_id} --message "{message}"'
+    else:
+        command = f"commit {task_id}"
+    
+    result = run_cli_command(command)
+    return jsonify(result)
+
+@app.route('/api/block_task', methods=['POST'])
+@requires_auth
+def block_task():
+    data = request.json
+    task_id = data.get('task_id')
+    reason = data.get('reason', '')
+    
+    if not task_id or not reason:
+        return jsonify({"success": False, "error": "Task ID and reason required"})
+    
+    result = run_cli_command(f'block {task_id} "{reason}"')
+    return jsonify(result)
+
+@app.route('/api/generate_blueprint', methods=['POST'])
+@requires_auth
+def generate_blueprint():
+    """Generate blueprint documentation via API"""
+    data = request.json
+    blueprint_type = data.get('type', 'phase')
+    phase_id = data.get('phase_id', 1)
+    
+    try:
+        from src.blueprint_generator import PhaseBlueprintGenerator
+        generator = PhaseBlueprintGenerator(PROJECT_ROOT)
+        
+        if blueprint_type == 'phase':
+            content = generator.generate_comprehensive_phase_blueprint(phase_id)
+            filename = f"phase_{phase_id}_blueprint.md"
+            filepath = generator.update_phase_blueprint(phase_id)
+        elif blueprint_type == 'handoff':
+            content = generator.generate_session_handoff()
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"session_{timestamp}.md"
+            filepath = PROJECT_ROOT / "docs" / "sessions" / filename
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            with open(filepath, 'w') as f:
+                f.write(content)
+            filepath = str(filepath)
+        elif blueprint_type == 'architecture':
+            content = generator.generate_system_architecture_blueprint()
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M')
+            filename = f"architecture_{timestamp}.md"
+            filepath = PROJECT_ROOT / "docs" / "blueprints" / filename
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            with open(filepath, 'w') as f:
+                f.write(content)
+            filepath = str(filepath)
+        else:
+            return jsonify({"success": False, "error": "Invalid blueprint type"})
+        
+        return jsonify({
+            "success": True,
+            "content": content,
+            "filepath": filepath,
+            "filename": filename
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/generate_report', methods=['POST'])
+@requires_auth
+def generate_report():
+    data = request.json
+    task_id = data.get('task_id')
+    custom_summary = data.get('summary', '')
+    
+    if not task_id:
+        return jsonify({"success": False, "error": "No task ID provided"})
+    
+    tasks_data = task_manager.load_tasks()
+    task = next((t for t in tasks_data.get("tasks", []) if t['id'] == task_id), None)
+    if not task:
+        return jsonify({"success": False, "error": f"Task '{task_id}' not found"})
+    
+    if custom_summary:
+        summary = custom_summary
+    else:
+        summary = f"Implemented {task.get('description', 'task requirements')}"
+    
+    try:
+        result = subprocess.run(
+            ["git", "show", "--name-only", "--pretty=format:", "HEAD"],
+            capture_output=True, text=True, cwd=PROJECT_ROOT
+        )
+        recent_files = [f.strip() for f in result.stdout.strip().split('\n') if f.strip()]
+        artifacts = ", ".join(recent_files) if recent_files else task.get("output", "No artifacts specified")
+    except:
+        artifacts = task.get("output", "No artifacts specified")
+    
+    status = task.get('status', 'pending').title()
+    phase_info = f"Phase {task.get('phase', 0)}: {task.get('phase_name', 'Legacy')}"
+    project_info = task_manager.get_project_info()
+    
+    report = f"""=== CLAUDE HANDOFF REPORT ===
+Task: {task_id}
+{phase_info}
+Status: {status}
+Summary: "{summary}"
+Expected Output: {task.get('output', 'Not specified')}
+Artifacts: {artifacts}
+
+Context: This task is part of the {project_info['name']} project.
+Next Steps: Continue with remaining Phase {task.get('phase', 0)} tasks or begin next phase.
+==========================="""
+    
+    timestamp = datetime.datetime.now().strftime('%m%d_%H%M')
+    reports_dir = task_manager.reports_dir
+    reports_dir.mkdir(exist_ok=True)
+    
+    filename = f"Claude_Handoff_{task_id}_{timestamp}.txt"
+    report_file = reports_dir / filename
+    
+    with open(report_file, 'w') as f:
+        f.write(f"# Claude Handoff Report\n")
+        f.write(f"# Generated: {datetime.datetime.now().strftime('%A %B %d, %Y at %I:%M %p')}\n")
+        f.write(f"# Task: {task_id}\n\n")
+        f.write(report)
+        f.write(f"\n\n# Phase Progress:\n")
+        
+        phase_progress = task_manager.get_phase_progress()
+        for phase_id, progress in phase_progress.items():
+            f.write(f"Phase {phase_id} ({progress['name']}): {progress['percentage']:.0f}% complete\n")
+    
+    return jsonify({
+        "success": True, 
+        "report": report, 
+        "filename": filename,
+        "filepath": str(report_file)
+    })
+
+@app.route('/health')
+def health_check():
+    project_info = task_manager.get_project_info()
+    return jsonify({
+        "status": "healthy", 
+        "project": project_info['name'],
+        "domain": config.ui.domain if config else "bruce.honey-duo.com", 
+        "version": "1.0-with-blueprint-import",
+        "config_loaded": project_info['config_loaded']
+    })
+
+if __name__ == "__main__":
+    project_info = task_manager.get_project_info()
+    domain = config.ui.domain if config else "hdw.honey-duo.com"
+    port = config.ui.port if config else 5000
+    
+    print("🌐 Bruce Complete Management Interface - With Blueprint Import Feature")
+    print(f"🔐 Access: https://{domain}")
+    print(f"🔑 Login: hdw / HoneyDuo2025!")
+    print(f"📋 Project: {project_info['name']}")
+    print(f"⚙️ Config: {'✅ Loaded' if project_info['config_loaded'] else '📋 Using defaults'}")
+    print("")
+    print("💡 Features:")
+    print("  ⚙️ Config System - bruce.yaml configuration support")  
+    print("  🎨 Dynamic Theming - colors and branding from config")
+    print("  📁 Flexible Paths - configurable directory structure")
+    print("  ✨ Enhanced Context - Related tasks, architecture, decisions")
+    print("  🏗️ Blueprint Generator - Comprehensive documentation")
+    print("  ⚙️ Task/Phase Management - Add/edit via web interface")
+    print("  📥 Blueprint Import - Design-first workflow with YAML blueprints")
+    print("")
+    print("🚀 Ready for portable, config-driven project management with blueprint import!")
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
