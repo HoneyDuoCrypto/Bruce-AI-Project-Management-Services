@@ -176,11 +176,19 @@ def init_session():
         session['selected_project'] = str(PROJECT_ROOT)
         session.permanent = True
 
-def run_cli_command(command):
+def run_cli_command(command, project_path=None):
     """Run CLI command and return result"""
+    if project_path is None:
+        project_path = get_selected_project_path()
+    
     try:
-        cmd = f"python3 {PROJECT_ROOT}/cli/bruce.py {command}"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=PROJECT_ROOT)
+        # Look for CLI script in the project or use current project's CLI
+        cli_script = project_path / "cli" / "bruce.py"
+        if not cli_script.exists():
+            cli_script = PROJECT_ROOT / "cli" / "bruce.py"
+        
+        cmd = f"python3 {cli_script} {command}"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=project_path)
         return {"success": result.returncode == 0, "output": result.stdout, "error": result.stderr}
     except Exception as e:
         return {"success": False, "output": "", "error": str(e)}
@@ -372,7 +380,13 @@ def generator():
     template_context.update({
         'active_page': 'generator',
         'phase_progress': phase_progress,
-        'selected_phase': selected_phase
+        'selected_phase': selected_phase,
+        'total_templates': 9,  # Add this to fix template error
+        'generator_features': [
+            'Phase blueprints',
+            'Session handoffs', 
+            'Architecture maps'
+        ]
     })
     
     from templates.generator import get_generator_template
@@ -447,13 +461,36 @@ def api_discover_projects():
     """API endpoint to discover Bruce projects"""
     try:
         projects = discover_bruce_projects()
+        current_project = str(get_selected_project_path().resolve())
+        
+        # Ensure current project is marked correctly
+        for project in projects:
+            project_path = str(Path(project['path']).resolve())
+            project['is_current'] = (project_path == current_project)
+        
         return jsonify({
             "success": True,
             "projects": projects,
-            "current_project": str(get_selected_project_path())
+            "current_project": current_project
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+
+def get_selected_project_path() -> Path:
+    """Get the currently selected project path from session"""
+    if 'selected_project' in session:
+        try:
+            selected_path = Path(session['selected_project']).resolve()
+            if selected_path.exists() and (selected_path / "bruce.yaml").exists():
+                return selected_path
+        except Exception as e:
+            print(f"⚠️ Invalid session project path: {e}")
+            # Clear invalid session
+            session.pop('selected_project', None)
+    
+    # Default to current project
+    return PROJECT_ROOT.resolve()
+
 
 @app.route('/api/switch_project', methods=['POST'])
 @requires_auth
@@ -466,7 +503,7 @@ def api_switch_project():
         if not project_path:
             return jsonify({"success": False, "error": "No project path provided"})
         
-        project_path = Path(project_path)
+        project_path = Path(project_path).resolve()  # Resolve absolute path
         
         # Validate project
         if not project_path.exists():
@@ -483,21 +520,27 @@ def api_switch_project():
         except Exception as e:
             return jsonify({"success": False, "error": f"Failed to initialize project: {str(e)}"})
         
-        # Store in session
+        # Store in session with absolute path
         session['selected_project'] = str(project_path)
         session.permanent = True
         
-        # Clear cache
-        get_cached_project_info.cache_clear()
+        # Clear any caches
+        if hasattr(get_cached_project_info, 'cache_clear'):
+            get_cached_project_info.cache_clear()
+        
+        print(f"✅ Project switched to: {project_path}")  # Debug log
         
         return jsonify({
             "success": True,
             "project_info": project_info,
+            "project_path": str(project_path),
             "message": f"Switched to project: {project_info['name']}"
         })
         
     except Exception as e:
+        print(f"❌ Project switch error: {e}")  # Debug log
         return jsonify({"success": False, "error": str(e)})
+
 
 @app.route('/api/current_project_info')
 @requires_auth
@@ -615,36 +658,73 @@ def validate_config():
 @app.route('/api/add_task', methods=['POST'])
 @requires_auth
 def add_task():
-    """Add a new task via API"""
+    """Add a new task via API - Direct TaskManager approach"""
     try:
         data = request.json
-        cmd_parts = [
-            "add-task",
-            f"--phase {data['phase']}",
-            f"--id \"{data['id']}\"",
-            f"--description \"{data['description']}\""
-        ]
         
+        # Get current project's task manager
+        current_project = get_selected_project_path()
+        task_manager = get_task_manager_for_project(current_project)
+        
+        # Validate required fields
+        if not data.get('phase') or not data.get('id') or not data.get('description'):
+            return jsonify({"success": False, "error": "Phase, ID, and Description are required"})
+        
+        # Create task data
+        task_data = {
+            'id': data['id'],
+            'description': data['description'],
+            'status': 'pending',
+            'created': datetime.datetime.now().isoformat()
+        }
+        
+        # Add optional fields
         if data.get('output'):
-            cmd_parts.append(f"--output \"{data['output']}\"")
+            task_data['output'] = data['output']
         if data.get('tests'):
-            cmd_parts.append(f"--tests \"{data['tests']}\"")
+            task_data['tests'] = data['tests']
         if data.get('context') and any(data['context']):
-            context_items = [f'"{item}"' for item in data['context'] if item.strip()]
-            if context_items:
-                cmd_parts.append(f"--context {' '.join(context_items)}")
+            task_data['context'] = [item.strip() for item in data['context'] if item.strip()]
         if data.get('depends_on') and any(data['depends_on']):
-            dep_items = [f'"{item}"' for item in data['depends_on'] if item.strip()]
-            if dep_items:
-                cmd_parts.append(f"--depends-on {' '.join(dep_items)}")
+            task_data['depends_on'] = [item.strip() for item in data['depends_on'] if item.strip()]
         if data.get('acceptance_criteria') and any(data['acceptance_criteria']):
-            criteria_items = [f'"{item}"' for item in data['acceptance_criteria'] if item.strip()]
-            if criteria_items:
-                cmd_parts.append(f"--acceptance-criteria {' '.join(criteria_items)}")
+            task_data['acceptance_criteria'] = [item.strip() for item in data['acceptance_criteria'] if item.strip()]
         
-        command = ' '.join(cmd_parts)
-        result = run_cli_command(command)
-        return jsonify(result)
+        # Find the phase file
+        phase_id = data['phase']
+        phase_files = list(task_manager.phases_dir.glob(f"phase{phase_id}_*.yml"))
+        
+        if not phase_files:
+            return jsonify({"success": False, "error": f"Phase {phase_id} file not found"})
+        
+        phase_file = phase_files[0]
+        
+        # Load existing phase data
+        with open(phase_file, 'r') as f:
+            phase_data = yaml.safe_load(f)
+        
+        # Add task to phase
+        if 'tasks' not in phase_data:
+            phase_data['tasks'] = []
+        
+        # Check for duplicate task ID
+        existing_ids = [t['id'] for t in phase_data['tasks']]
+        if task_data['id'] in existing_ids:
+            return jsonify({"success": False, "error": f"Task ID '{task_data['id']}' already exists in this phase"})
+        
+        phase_data['tasks'].append(task_data)
+        
+        # Save updated phase file
+        with open(phase_file, 'w') as f:
+            yaml.dump(phase_data, f, default_flow_style=False, indent=2, sort_keys=False)
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Task '{task_data['id']}' created successfully in Phase {phase_id}",
+            "task_id": task_data['id'],
+            "phase_id": phase_id
+        })
+        
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -888,20 +968,26 @@ def import_blueprint():
 @requires_auth
 def start_task():
     """Start a task with enhanced or basic context"""
-    data = request.json
-    task_id = data.get('task_id')
-    use_enhanced = data.get('enhanced', True)
-    
-    if not task_id:
-        return jsonify({"success": False, "error": "No task ID provided"})
-    
     try:
-        task_manager = get_current_task_manager()
+        data = request.json
+        task_id = data.get('task_id')
+        use_enhanced = data.get('enhanced', True)
+        
+        if not task_id:
+            return jsonify({"success": False, "error": "No task ID provided"})
+        
+        # Get current project's task manager
+        current_project = get_selected_project_path()
+        task_manager = get_task_manager_for_project(current_project)
+        
+        # Use the task manager's start method
         task_manager.cmd_start(task_id, enhanced=use_enhanced)
+        
         return jsonify({
             "success": True, 
             "enhanced": use_enhanced,
-            "message": f"Task {task_id} started successfully"
+            "message": f"Task {task_id} started successfully",
+            "task_id": task_id
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
@@ -972,79 +1058,148 @@ def related_tasks(task_id):
 @requires_auth
 def complete_task():
     """Complete a task and trigger git commit"""
-    data = request.json
-    task_id = data.get('task_id')
-    message = data.get('message', '')
-    
-    if not task_id:
-        return jsonify({"success": False, "error": "No task ID provided"})
-    
-    if message:
-        command = f'commit {task_id} --message "{message}"'
-    else:
-        command = f"commit {task_id}"
-    
-    result = run_cli_command(command)
-    return jsonify(result)
+    try:
+        data = request.json
+        task_id = data.get('task_id')
+        message = data.get('message', '')
+        
+        if not task_id:
+            return jsonify({"success": False, "error": "No task ID provided"})
+        
+        # Get current project's task manager
+        current_project = get_selected_project_path()
+        task_manager = get_task_manager_for_project(current_project)
+        
+        # Update task status directly
+        task_manager.save_task_updates(task_id, {
+            "status": "completed",
+            "updated": datetime.datetime.now().isoformat(),
+            "completed_at": datetime.datetime.now().isoformat(),
+            "notes": [{
+                "timestamp": datetime.datetime.now().isoformat(),
+                "note": f"Task completed. Message: {message}" if message else "Task completed"
+            }]
+        })
+        
+        # Try git commit if in git repo
+        try:
+            if message:
+                git_cmd = f'git add -A && git commit -m "Complete task {task_id}: {message}"'
+            else:
+                git_cmd = f'git add -A && git commit -m "Complete task {task_id}"'
+            
+            subprocess.run(git_cmd, shell=True, cwd=current_project, capture_output=True)
+        except Exception:
+            pass  # Git commit is optional
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Task {task_id} completed successfully",
+            "task_id": task_id
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 @app.route('/api/block_task', methods=['POST'])
 @requires_auth
 def block_task():
     """Block a task with reason"""
-    data = request.json
-    task_id = data.get('task_id')
-    reason = data.get('reason', '')
-    
-    if not task_id or not reason:
-        return jsonify({"success": False, "error": "Task ID and reason required"})
-    
-    result = run_cli_command(f'block {task_id} "{reason}"')
-    return jsonify(result)
+    try:
+        data = request.json
+        task_id = data.get('task_id')
+        reason = data.get('reason', '')
+        
+        if not task_id or not reason:
+            return jsonify({"success": False, "error": "Task ID and reason required"})
+        
+        # Get current project's task manager
+        current_project = get_selected_project_path()
+        task_manager = get_task_manager_for_project(current_project)
+        
+        # Update task status directly
+        task_manager.save_task_updates(task_id, {
+            "status": "blocked",
+            "updated": datetime.datetime.now().isoformat(),
+            "blocked_at": datetime.datetime.now().isoformat(),
+            "notes": [{
+                "timestamp": datetime.datetime.now().isoformat(),
+                "note": f"Blocked: {reason}"
+            }]
+        })
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Task {task_id} blocked successfully",
+            "task_id": task_id,
+            "reason": reason
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 @app.route('/api/generate_blueprint', methods=['POST'])
 @requires_auth
 def generate_blueprint():
     """Generate blueprint documentation via API"""
-    data = request.json
-    blueprint_type = data.get('type', 'phase')
-    phase_id = data.get('phase_id', 1)
-    
     try:
+        data = request.json
+        blueprint_type = data.get('type', 'phase')
+        phase_id = data.get('phase_id', 1)
+        
+        # Get current project path
+        current_project = get_selected_project_path()
+        
+        # Import and create generator
         from src.blueprint_generator import PhaseBlueprintGenerator
-        generator = PhaseBlueprintGenerator(get_selected_project_path())
+        generator = PhaseBlueprintGenerator(current_project)
         
         if blueprint_type == 'phase':
             content = generator.generate_comprehensive_phase_blueprint(phase_id)
             filename = f"phase_{phase_id}_blueprint.md"
             filepath = generator.update_phase_blueprint(phase_id)
+            
         elif blueprint_type == 'handoff':
             content = generator.generate_session_handoff()
             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"session_{timestamp}.md"
-            filepath = get_selected_project_path() / "docs" / "sessions" / filename
-            filepath.parent.mkdir(parents=True, exist_ok=True)
+            filename = f"session_handoff_{timestamp}.md"
+            
+            # Save to sessions directory
+            sessions_dir = current_project / "docs" / "sessions"
+            sessions_dir.mkdir(parents=True, exist_ok=True)
+            filepath = sessions_dir / filename
+            
             with open(filepath, 'w') as f:
                 f.write(content)
             filepath = str(filepath)
+            
         elif blueprint_type == 'architecture':
-            content = generator.generate_system_architecture_blueprint()
+            content = generator.generate_ultimate_system_architecture_blueprint()
             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M')
-            filename = f"architecture_{timestamp}.md"
-            filepath = get_selected_project_path() / "docs" / "blueprints" / filename
-            filepath.parent.mkdir(parents=True, exist_ok=True)
+            filename = f"architecture_blueprint_{timestamp}.md"
+            
+            # Save to blueprints directory
+            blueprints_dir = current_project / "docs" / "blueprints"
+            blueprints_dir.mkdir(parents=True, exist_ok=True)
+            filepath = blueprints_dir / filename
+            
             with open(filepath, 'w') as f:
                 f.write(content)
             filepath = str(filepath)
+            
         else:
             return jsonify({"success": False, "error": "Invalid blueprint type"})
         
         return jsonify({
             "success": True,
             "content": content,
-            "filepath": filepath,
-            "filename": filename
+            "filepath": str(filepath),
+            "filename": filename,
+            "type": blueprint_type
         })
+        
     except Exception as e:
+        print(f"❌ Blueprint generation error: {e}")  # Debug log
         return jsonify({"success": False, "error": str(e)})
 
 @app.route('/api/generate_report', methods=['POST'])
@@ -1140,7 +1295,7 @@ if __name__ == "__main__":
     initial_task_manager = TaskManager(PROJECT_ROOT)
     project_info = initial_task_manager.get_project_info()
     config = initial_task_manager.config
-    domain = config.ui.domain if config else "hdw.honey-duo.com"
+    domain = config.ui.domain if config else "bruce.honey-duo.com"
     port = config.ui.port if config else 8000
     
     print("🌐 Bruce Complete Management Interface - Multi-Project Enhanced")

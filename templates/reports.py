@@ -108,34 +108,104 @@ Reports are automatically saved to: claude_reports/Claude_Handoff_taskname_MMDD_
         </div>
         
         <script>
+        // Fix dropdown selection state on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const select = document.getElementById('project-select');
+            if (!select) return;
+            
+            console.log('🔧 Setting up dropdown fix...');
+            
+            // Get backend current project and sync dropdown
+            fetch('/api/current_project_info')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.project_info && data.project_info.path) {
+                    const currentPath = data.project_info.path;
+                    console.log('Backend current project:', currentPath);
+                    console.log('Dropdown current value:', select.value);
+                    
+                    // Find matching option and select it
+                    for (let i = 0; i < select.options.length; i++) {
+                        if (select.options[i].value === currentPath) {
+                            console.log('✅ Syncing dropdown to index', i);
+                            select.selectedIndex = i;
+                            break;
+                        }
+                    }
+                }
+            })
+            .catch(error => console.log('❌ Error syncing dropdown:', error));
+            
+            // Add event handlers
+            select.addEventListener('change', function() {
+                console.log('🔄 CHANGE event - switching to:', this.value);
+                switchProject();
+            });
+            
+            // Force handler for clicks (bypasses onchange issues)
+            select.addEventListener('click', function() {
+                const originalIndex = this.selectedIndex;
+                setTimeout(() => {
+                    if (this.selectedIndex !== originalIndex) {
+                        console.log('🔄 CLICK caused selection change - switching to:', this.value);
+                        switchProject();
+                    }
+                }, 100);
+            });
+            
+            console.log('✅ Dropdown handlers setup complete');
+        });
+
         function switchProject() {
             const select = document.getElementById('project-select');
             const projectPath = select.value;
-            
-            if (!projectPath) return;
-            
+    
+            console.log('=== PROJECT SWITCH TRIGGERED ===');
+            console.log('Target path:', projectPath);
+            console.log('Selected index:', select.selectedIndex);
+    
+            if (!projectPath || projectPath === '') {
+                console.log('❌ Empty path, aborting');
+                return;
+            }
+    
+            const selectedOption = select.options[select.selectedIndex];
+            const originalText = selectedOption.text;
+    
             select.disabled = true;
-            const originalText = select.options[select.selectedIndex].text;
-            select.options[select.selectedIndex].text = '🔄 Switching...';
-            
+            selectedOption.text = '🔄 Switching...';
+    
+            console.log('🔄 Making API call...');
+    
             fetch('/api/switch_project', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-cache'
+                },
                 body: JSON.stringify({project_path: projectPath})
             })
-            .then(response => response.json())
+            .then(response => {
+                console.log('✅ API status:', response.status);
+                return response.json();
+            })
             .then(data => {
+                console.log('✅ API response:', data);
+        
                 if (data.success) {
-                    window.location.reload();
+                    console.log('✅ SUCCESS - reloading page...');
+                    window.location.href = window.location.href.split('?')[0] + '?refresh=' + Date.now();
                 } else {
+                    console.log('❌ FAILED:', data.error);
                     alert('Failed to switch project: ' + data.error);
-                    select.options[select.selectedIndex].text = originalText;
+                    selectedOption.text = originalText;
                     select.disabled = false;
                 }
             })
             .catch(error => {
+                console.log('❌ ERROR:', error);
                 alert('Error switching project: ' + error);
-                select.options[select.selectedIndex].text = originalText;
+                selectedOption.text = originalText;
                 select.disabled = false;
             });
         }

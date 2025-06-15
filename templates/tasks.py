@@ -1,6 +1,6 @@
 """
 Tasks management template - Complete implementation with enhanced context and modals
-FIXED: Removed invalid {% break %} tag and replaced with proper Jinja2 logic
+FIXED: Removed invalid {% break %} tag and added proper multi-project header
 """
 
 def get_tasks_template():
@@ -22,8 +22,26 @@ def get_tasks_template():
     <body>
         <div class="header">
             <div class="container">
-                <h1>🤖 {{ project_name }}</h1>
-                <div class="domain-badge">🌐 AI Project Assistant • {{ domain }}</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div>
+                        <h1>🤖 {{ project_name }}</h1>
+                        <div class="domain-badge">🌐 AI Project Assistant • {{ domain }}</div>
+                    </div>
+                    {% if multi_project_enabled %}
+                    <div class="project-selector">
+                        <label for="project-select">Project:</label>
+                        <select id="project-select" onchange="switchProject()">
+                            {% for project in available_projects %}
+                                {% set selected = 'selected' if project.is_current else '' %}
+                                {% set accessible_icon = '✅' if project.get('accessible', True) else '❌' %}
+                                <option value="{{ project.path }}" {{ selected }}>
+                                    {{ accessible_icon }} {{ project.name }} ({{ project.get('task_count', 0) }} tasks)
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                </div>
                 <div class="nav">
                     <a href="/">📊 Dashboard</a>
                     <a href="/tasks" class="active">📋 Tasks</a>
@@ -33,6 +51,9 @@ def get_tasks_template():
                     <a href="/reports">📈 Reports</a>
                     <a href="/config">⚙️ Config</a>
                     <a href="/help">❓ Help</a>
+                    {% if multi_project_enabled %}
+                    <button onclick="discoverProjects()" class="btn btn-info" style="margin-left: 15px;">🔍 Discover</button>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -81,11 +102,9 @@ def get_tasks_template():
                                                 {% endif %}
                                                 
                                                 {% if status == "blocked" and task.get("notes") %}
-                                                    {% set blocked_note = namespace(found=false) %}
                                                     {% for note in task.get("notes", [])|reverse %}
-                                                        {% if not blocked_note.found and "Blocked:" in note.get("note", "") %}
+                                                        {% if "Blocked:" in note.get("note", "") %}
                                                             <div class="task-meta" style="color: #ff6b6b; font-weight: bold;">🚫 {{ note.note }}</div>
-                                                            {% set blocked_note.found = true %}
                                                         {% endif %}
                                                     {% endfor %}
                                                 {% endif %}
@@ -133,6 +152,138 @@ def get_tasks_template():
         </div>
         
         <script>
+        // Fix dropdown selection state on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const select = document.getElementById('project-select');
+            if (!select) return;
+            
+            console.log('🔧 Setting up dropdown fix...');
+            
+            // Get backend current project and sync dropdown
+            fetch('/api/current_project_info')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.project_info && data.project_info.path) {
+                    const currentPath = data.project_info.path;
+                    console.log('Backend current project:', currentPath);
+                    console.log('Dropdown current value:', select.value);
+                    
+                    // Find matching option and select it
+                    for (let i = 0; i < select.options.length; i++) {
+                        if (select.options[i].value === currentPath) {
+                            console.log('✅ Syncing dropdown to index', i);
+                            select.selectedIndex = i;
+                            break;
+                        }
+                    }
+                }
+            })
+            .catch(error => console.log('❌ Error syncing dropdown:', error));
+            
+            // Add event handlers
+            select.addEventListener('change', function() {
+                console.log('🔄 CHANGE event - switching to:', this.value);
+                switchProject();
+            });
+            
+            // Force handler for clicks (bypasses onchange issues)
+            select.addEventListener('click', function() {
+                const originalIndex = this.selectedIndex;
+                setTimeout(() => {
+                    if (this.selectedIndex !== originalIndex) {
+                        console.log('🔄 CLICK caused selection change - switching to:', this.value);
+                        switchProject();
+                    }
+                }, 100);
+            });
+            
+            console.log('✅ Dropdown handlers setup complete');
+        });
+
+        function switchProject() {
+            const select = document.getElementById('project-select');
+            const projectPath = select.value;
+    
+            console.log('=== PROJECT SWITCH TRIGGERED ===');
+            console.log('Target path:', projectPath);
+            console.log('Selected index:', select.selectedIndex);
+    
+            if (!projectPath || projectPath === '') {
+                console.log('❌ Empty path, aborting');
+                return;
+            }
+    
+            const selectedOption = select.options[select.selectedIndex];
+            const originalText = selectedOption.text;
+    
+            select.disabled = true;
+            selectedOption.text = '🔄 Switching...';
+    
+            console.log('🔄 Making API call...');
+    
+            fetch('/api/switch_project', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-cache'
+                },
+                body: JSON.stringify({project_path: projectPath})
+            })
+            .then(response => {
+                console.log('✅ API status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('✅ API response:', data);
+        
+                if (data.success) {
+                    console.log('✅ SUCCESS - reloading page...');
+                    window.location.href = window.location.href.split('?')[0] + '?refresh=' + Date.now();
+                } else {
+                    console.log('❌ FAILED:', data.error);
+                    alert('Failed to switch project: ' + data.error);
+                    selectedOption.text = originalText;
+                    select.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.log('❌ ERROR:', error);
+                alert('Error switching project: ' + error);
+                selectedOption.text = originalText;
+                select.disabled = false;
+            });
+        }
+
+        function discoverProjects() {
+            fetch('/api/discover_projects')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const select = document.getElementById('project-select');
+                    select.innerHTML = '';
+                    
+                    data.projects.forEach(project => {
+                        const option = document.createElement('option');
+                        option.value = project.path;
+                        option.selected = project.is_current;
+                        
+                        const accessIcon = project.accessible ? '✅' : '❌';
+                        const taskCount = project.task_count || 0;
+                        option.textContent = `${accessIcon} ${project.name} (${taskCount} tasks)`;
+                        
+                        select.appendChild(option);
+                    });
+                    
+                    alert(`Discovered ${data.projects.length} Bruce projects!`);
+                } else {
+                    alert('Failed to discover projects: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('Error discovering projects: ' + error);
+            });
+        }
+        
         function showStartDialog(taskId) {
             const modalContent = `
                 <h2 style="color: {{ theme_color }}; margin-bottom: 20px;">🚀 Start Task: ${taskId}</h2>

@@ -1,7 +1,7 @@
 """
 Shared CSS styles for all Bruce templates
 Contains all styling and responsive design from original system
-UPDATED: Step 3 - Added project selector styles for multi-project support
+FIXED: Renamed from style.py to styles.py to match template imports
 """
 
 def get_shared_styles():
@@ -36,7 +36,7 @@ def get_shared_styles():
                 margin-bottom: 20px;
             }
             
-            /* PROJECT SELECTOR STYLES - STEP 3 ADDITION */
+            /* PROJECT SELECTOR STYLES */
             .project-selector {
                 min-width: 300px;
             }

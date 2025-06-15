@@ -197,35 +197,48 @@ ui:
         function switchProject() {
             const select = document.getElementById('project-select');
             const projectPath = select.value;
-            
+    
             if (!projectPath) return;
-            
+    
+            // Get current selection for comparison
+            const selectedOption = select.options[select.selectedIndex];
+            const originalText = selectedOption.text;
+    
+            // Prevent multiple clicks
             select.disabled = true;
-            const originalText = select.options[select.selectedIndex].text;
-            select.options[select.selectedIndex].text = '🔄 Switching...';
-            
+            selectedOption.text = '🔄 Switching...';
+    
+            console.log(`Switching to project: ${projectPath}`);
+    
             fetch('/api/switch_project', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({project_path: projectPath})
             })
-            .then(response => response.json())
+            .then(response => {
+                console.log('Switch response status:', response.status);
+                return response.json();
+            })
             .then(data => {
+                console.log('Switch response data:', data);
                 if (data.success) {
-                    window.location.reload();
+                    console.log('Project switch successful, reloading page...');
+                    // Force reload after successful switch
+                    window.location.reload(true);
                 } else {
+                    console.error('Switch failed:', data.error);
                     alert('Failed to switch project: ' + data.error);
-                    select.options[select.selectedIndex].text = originalText;
+                    selectedOption.text = originalText;
                     select.disabled = false;
                 }
             })
             .catch(error => {
+                console.error('Switch error:', error);
                 alert('Error switching project: ' + error);
-                select.options[select.selectedIndex].text = originalText;
+                selectedOption.text = originalText;
                 select.disabled = false;
             });
-        }
-
+}
         function discoverProjects() {
             fetch('/api/discover_projects')
             .then(response => response.json())
