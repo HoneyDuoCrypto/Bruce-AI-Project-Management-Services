@@ -1,0 +1,230 @@
+# Phase Planning Template & Instructions for Bruce System
+# Use this template to create well-structured phases with proper Claude context
+
+## PHASE PLANNING TEMPLATE
+## =====================
+
+phase:
+  id: [NUMBER]
+  name: "[DESCRIPTIVE NAME]"
+  description: "[ONE-LINE SUMMARY OF WHAT THIS PHASE ACCOMPLISHES]"
+  context:
+    background: |
+      [SITUATION ANALYSIS]
+      - What has been completed in previous phases
+      - Current state of the system
+      - What problems this phase addresses
+      - Any technical debt or constraints inherited
+      
+    vision: |
+      [FUTURE STATE DESCRIPTION]
+      - What the system will look like after this phase
+      - Key capabilities that will be enabled
+      - Performance targets and quality goals
+      - User experience improvements expected
+      
+    decisions_made: |
+      [STRATEGIC DECISIONS]
+      - Technical approach chosen and why
+      - Trade-offs made and reasoning
+      - Standards and patterns to follow
+      - What approaches were rejected and why
+      
+    constraints: |
+      [LIMITATIONS AND REQUIREMENTS]
+      - Backward compatibility requirements
+      - Performance/resource limitations
+      - External dependencies or timelines
+      - Technical constraints that must be respected
+
+tasks:
+- id: [task-kebab-case-id]
+  description: "[CLEAR DESCRIPTION OF WHAT NEEDS TO BE BUILT/FIXED]"
+  status: pending
+  output: "[SPECIFIC DELIVERABLE THAT WILL BE CREATED]"
+  depends_on:
+  - [other-task-id]  # Remove if no dependencies
+  acceptance_criteria:
+  - "[SPECIFIC MEASURABLE REQUIREMENT 1]"
+  - "[SPECIFIC MEASURABLE REQUIREMENT 2]"
+  - "[SPECIFIC MEASURABLE REQUIREMENT 3]"
+  why: "[WHY THIS TASK IS NEEDED - THE PROBLEM IT SOLVES]"
+  connects_to: "[HOW THIS TASK RELATES TO THE BIGGER PICTURE]"
+  implementation_notes: |
+    [TECHNICAL IMPLEMENTATION GUIDANCE]
+    - Specific files/modules to create or modify
+    - Key classes, functions, or components needed
+    - Integration points with existing system
+    - Performance considerations
+    - Testing requirements
+    - Potential gotchas or complex areas
+
+## INSTRUCTIONS FOR USING THIS TEMPLATE
+## ===================================
+
+### 1. PHASE CONTEXT PLANNING (Critical for Claude Understanding)
+
+**Background Section:**
+- Start with completed work: "Phase X is complete with Y/Z tasks (completion%)"
+- Describe current system state factually
+- Identify specific problems this phase addresses
+- Note any technical debt or constraints inherited
+
+**Vision Section:**
+- Paint clear picture of end state
+- Include measurable targets (performance, capability, etc.)
+- Focus on user/developer experience improvements
+- Be specific about what will be possible after completion
+
+**Decisions Made Section:**
+- Document technical approach choices with reasoning
+- Include rejected alternatives and why
+- Set standards that tasks must follow
+- Provide decision framework for implementation choices
+
+**Constraints Section:**
+- Backward compatibility requirements
+- Performance/resource targets
+- External dependencies (APIs, libraries, etc.)
+- Timeline or priority constraints
+
+### 2. TASK BREAKDOWN STRATEGY
+
+**Optimal Task Size:**
+- One task = one complete session = one atomic commit
+- Should be completable in 2-4 hours of focused work
+- Avoid tasks that require >3 files to be modified significantly
+- Break large features into logical building blocks
+
+**Task Dependencies:**
+- Use depends_on sparingly - prefer loose coupling
+- Dependencies should be true blockers, not nice-to-haves
+- Order tasks to minimize dependency chains
+- Consider parallel work streams where possible
+
+**Task Naming:**
+- Use kebab-case with verb-noun pattern: implement-session-tracking
+- Be specific about what's being built/fixed
+- Avoid generic names like "update-system" or "fix-bugs"
+- Include context clues: "optimize-task-loading" vs "optimize-performance"
+
+### 3. WRITING CLAUDE-FRIENDLY TASK DESCRIPTIONS
+
+**Description Field:**
+- Start with action verb (implement, create, fix, enhance, validate)
+- Be specific about scope: "Add project switching to web interface"
+- Avoid vague terms: "improve system" → "optimize task loading performance"
+
+**Output Field:**
+- Specify exact deliverable: "Enhanced TaskManager with session tracking"
+- Include key files/components: "src/session_tracker.py with monitoring"
+- Mention integration points: "CLI and web interface integration"
+
+**Acceptance Criteria:**
+- Make measurable: "loads in <2 seconds" not "loads quickly"
+- Include edge cases: "handles corrupted data gracefully"
+- Specify integration requirements: "works with existing CLI commands"
+- Add performance/quality targets where relevant
+
+**Why Field:**
+- Explain the problem being solved
+- Connect to user pain points or system limitations
+- Be specific: "false signals in volatile markets" not "improve accuracy"
+
+**Connects_to Field:**
+- Show how this fits the bigger picture
+- Mention what this enables or unblocks
+- Reference dependencies this creates for future work
+
+**Implementation Notes:**
+- Provide specific technical guidance
+- List key files, classes, functions to create/modify
+- Include integration points and testing considerations
+- Warn about potential complexity or gotchas
+- Reference similar patterns in existing codebase
+
+### 4. COMMON PLANNING MISTAKES TO AVOID
+
+**Too Big Tasks:**
+❌ "implement-complete-session-system" 
+✅ "implement-task-session-tracking" + "create-session-handoff-generator"
+
+**Vague Descriptions:**
+❌ "fix the system" 
+✅ "fix momentum indicator false signals during market volatility"
+
+**Missing Context:**
+❌ Just listing technical requirements
+✅ Explaining why this matters and how it fits the bigger picture
+
+**Unclear Acceptance Criteria:**
+❌ "works correctly"
+✅ "handles 50+ tasks with <2 second load time"
+
+**Poor Dependencies:**
+❌ Everything depends on everything
+✅ Clear, minimal dependency chains with parallel work where possible
+
+### 5. VALIDATION CHECKLIST
+
+Before finalizing a phase, verify:
+
+**Context Complete:**
+- [ ] Background explains current state and problems clearly
+- [ ] Vision paints specific picture of end state
+- [ ] Decisions provide guidance for implementation choices
+- [ ] Constraints are realistic and specific
+
+**Tasks Well-Defined:**
+- [ ] Each task is one complete unit of work
+- [ ] Descriptions are specific and actionable
+- [ ] Acceptance criteria are measurable
+- [ ] Implementation notes provide clear technical guidance
+- [ ] Dependencies are minimal and logical
+
+**Claude-Friendly:**
+- [ ] Context provides full background for AI understanding
+- [ ] Tasks explain why they're needed, not just what to build
+- [ ] Technical implementation guidance is specific
+- [ ] Connection to bigger picture is clear
+
+### 6. EXAMPLE TASK QUALITY COMPARISON
+
+**Poor Task Example:**
+```yaml
+- id: update-ui
+  description: Make the interface better
+  status: pending
+  output: Better UI
+  acceptance_criteria:
+  - Looks good
+  - Works fast
+  why: UI needs improvement
+```
+
+**Good Task Example:**
+```yaml
+- id: optimize-task-list-rendering
+  description: Optimize web interface task list rendering for 50+ task projects
+  status: pending
+  output: Enhanced task list component with lazy loading and virtual scrolling
+  depends_on:
+  - implement-task-caching
+  acceptance_criteria:
+  - Task list loads in <2 seconds with 50+ tasks
+  - Memory usage stays under 100MB for large lists
+  - Scrolling remains smooth (60fps) with all task statuses
+  - Search and filtering work correctly with lazy loading
+  why: Current task list becomes unusably slow with large projects (8+ seconds load time)
+  connects_to: Essential for scaling Bruce to real-world project sizes and maintaining developer productivity
+  implementation_notes: |
+    - Modify templates/tasks.py to implement virtual scrolling
+    - Add lazy loading to bruce_app.py task list endpoint
+    - Implement client-side task caching in JavaScript
+    - Add pagination fallback for browsers without Intersection Observer
+    - Test with generated 50+ task project from stress-test-large-project
+    - Maintain existing filtering and search functionality
+    - Profile memory usage and rendering performance
+```
+
+This template and instructions will be incorporated into the broader Claude Instruction System during the `create-claude-instruction-system` task, but you can use this immediately for planning future phases.
