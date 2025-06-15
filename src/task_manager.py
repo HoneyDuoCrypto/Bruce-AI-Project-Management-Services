@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Enhanced Task Manager with Multi-Phase Support, Enhanced Context, and Config System
+Enhanced Task Manager with Multi-Phase Support, Enhanced Context, Config System, and Session Tracking
 Save as: src/task_manager.py
 """
 
@@ -9,10 +9,12 @@ import json
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Set, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta
 import shutil
 import re
 import sys
+import time
+import hashlib
 
 # Import config manager
 try:
@@ -21,6 +23,130 @@ except ImportError:
     # Fallback if config manager not available
     print("⚠️  Config manager not found, using hardcoded paths")
     ConfigManager = None
+
+class TaskSession:
+    """Represents a work session on a task"""
+    def __init__(self, task_id: str, project_root: Path):
+        self.task_id = task_id
+        self.project_root = project_root
+        self.start_time = datetime.now()
+        self.end_time = None
+        self.files_modified = set()
+        self.files_created = set()
+        self.files_deleted = set()
+        self.git_commits = []
+        self.context_snapshots = []
+        self.file_checksums = {}  # Track file content changes
+        self.session_notes = []
+        self.is_active = True
+        
+        # Capture initial state
+        self._capture_initial_state()
+    
+    def _capture_initial_state(self):
+        """Capture initial file states for change detection"""
+        # Track Python, YAML, and markdown files
+        patterns = ['**/*.py', '**/*.yaml', '**/*.yml', '**/*.md']
+        for pattern in patterns:
+            for file_path in self.project_root.glob(pattern):
+                if not any(part.startswith('.') for part in file_path.parts):
+                    try:
+                        self.file_checksums[str(file_path)] = self._get_file_checksum(file_path)
+                    except Exception:
+                        pass
+    
+    def _get_file_checksum(self, file_path: Path) -> str:
+        """Get MD5 checksum of a file"""
+        hash_md5 = hashlib.md5()
+        try:
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_md5.update(chunk)
+            return hash_md5.hexdigest()
+        except Exception:
+            return ""
+    
+    def capture_changes(self):
+        """Detect and record file changes during session"""
+        current_checksums = {}
+        patterns = ['**/*.py', '**/*.yaml', '**/*.yml', '**/*.md']
+        
+        for pattern in patterns:
+            for file_path in self.project_root.glob(pattern):
+                if not any(part.startswith('.') for part in file_path.parts):
+                    try:
+                        current_checksums[str(file_path)] = self._get_file_checksum(file_path)
+                    except Exception:
+                        pass
+        
+        # Find modified files
+        for file_path, old_checksum in self.file_checksums.items():
+            if file_path in current_checksums:
+                if current_checksums[file_path] != old_checksum:
+                    self.files_modified.add(file_path)
+            else:
+                self.files_deleted.add(file_path)
+        
+        # Find new files
+        for file_path in current_checksums:
+            if file_path not in self.file_checksums:
+                self.files_created.add(file_path)
+        
+        # Update checksums
+        self.file_checksums = current_checksums
+        
+        # Capture git commits if any
+        try:
+            result = subprocess.run(
+                ["git", "log", "--oneline", f"--since={self.start_time.isoformat()}", "--"],
+                capture_output=True, text=True, cwd=self.project_root
+            )
+            if result.returncode == 0:
+                commits = result.stdout.strip().split('\n')
+                self.git_commits = [c for c in commits if c]
+        except Exception:
+            pass
+    
+    def add_note(self, note: str):
+        """Add a timestamped note to the session"""
+        self.session_notes.append({
+            "timestamp": datetime.now().isoformat(),
+            "note": note
+        })
+    
+    def capture_context_snapshot(self, context: str):
+        """Capture a context snapshot during the session"""
+        self.context_snapshots.append({
+            "timestamp": datetime.now().isoformat(),
+            "context": context
+        })
+    
+    def end_session(self):
+        """End the session and capture final state"""
+        self.end_time = datetime.now()
+        self.is_active = False
+        self.capture_changes()
+    
+    def get_duration(self) -> timedelta:
+        """Get session duration"""
+        end = self.end_time or datetime.now()
+        return end - self.start_time
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert session to dictionary for storage"""
+        return {
+            "task_id": self.task_id,
+            "start_time": self.start_time.isoformat(),
+            "end_time": self.end_time.isoformat() if self.end_time else None,
+            "duration_seconds": self.get_duration().total_seconds(),
+            "files_modified": list(self.files_modified),
+            "files_created": list(self.files_created),
+            "files_deleted": list(self.files_deleted),
+            "git_commits": self.git_commits,
+            "context_snapshots": self.context_snapshots,
+            "session_notes": self.session_notes,
+            "is_active": self.is_active
+        }
 
 class TaskManager:
     def __init__(self, project_root: Optional[Path] = None):
@@ -51,6 +177,12 @@ class TaskManager:
             self.docs_dir = self.project_root / "docs"
             self.reports_dir = self.project_root / "claude_reports"
         
+        # Session tracking
+        self.sessions_dir = self.project_root / "bruce_sessions"
+        self.sessions_dir.mkdir(exist_ok=True)
+        self.active_sessions = {}  # task_id -> TaskSession
+        self.session_history = self._load_session_history()
+        
         # Common paths
         self.src_dir = self.project_root / "src"
         self.tests_dir = self.project_root / "tests"
@@ -59,6 +191,191 @@ class TaskManager:
         self.phases_dir.mkdir(exist_ok=True)
         self.contexts_dir.mkdir(exist_ok=True)
         self.reports_dir.mkdir(exist_ok=True)
+    
+    def _load_session_history(self) -> Dict[str, List[Dict]]:
+        """Load session history from disk"""
+        history_file = self.sessions_dir / "session_history.json"
+        if history_file.exists():
+            try:
+                with open(history_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"⚠️  Error loading session history: {e}")
+        return {}
+    
+    def _save_session_history(self):
+        """Save session history to disk"""
+        history_file = self.sessions_dir / "session_history.json"
+        try:
+            with open(history_file, 'w') as f:
+                json.dump(self.session_history, f, indent=2)
+        except Exception as e:
+            print(f"⚠️  Error saving session history: {e}")
+    
+    def start_task_session(self, task_id: str) -> TaskSession:
+        """Start a new work session for a task"""
+        # End any existing session for this task
+        if task_id in self.active_sessions:
+            self.end_task_session(task_id)
+        
+        # Create new session
+        session = TaskSession(task_id, self.project_root)
+        self.active_sessions[task_id] = session
+        
+        # Add session start note
+        session.add_note("Task session started")
+        
+        # Save session file
+        self._save_active_session(task_id)
+        
+        return session
+    
+    def end_task_session(self, task_id: str, notes: str = None) -> Optional[TaskSession]:
+        """End a work session for a task"""
+        if task_id not in self.active_sessions:
+            return None
+        
+        session = self.active_sessions[task_id]
+        
+        # Add final notes if provided
+        if notes:
+            session.add_note(notes)
+        
+        # End session and capture final changes
+        session.end_session()
+        
+        # Store in history
+        if task_id not in self.session_history:
+            self.session_history[task_id] = []
+        self.session_history[task_id].append(session.to_dict())
+        
+        # Save history
+        self._save_session_history()
+        
+        # Save final session state
+        self._save_session_archive(session)
+        
+        # Remove from active sessions
+        del self.active_sessions[task_id]
+        
+        # Clean up active session file
+        active_file = self.sessions_dir / f"active_{task_id}.json"
+        if active_file.exists():
+            active_file.unlink()
+        
+        return session
+    
+    def _save_active_session(self, task_id: str):
+        """Save active session state to disk"""
+        if task_id not in self.active_sessions:
+            return
+        
+        session = self.active_sessions[task_id]
+        active_file = self.sessions_dir / f"active_{task_id}.json"
+        
+        try:
+            with open(active_file, 'w') as f:
+                json.dump(session.to_dict(), f, indent=2)
+        except Exception as e:
+            print(f"⚠️  Error saving active session: {e}")
+    
+    def _save_session_archive(self, session: TaskSession):
+        """Archive completed session"""
+        timestamp = session.start_time.strftime("%Y%m%d_%H%M%S")
+        archive_file = self.sessions_dir / f"session_{session.task_id}_{timestamp}.json"
+        
+        try:
+            with open(archive_file, 'w') as f:
+                json.dump(session.to_dict(), f, indent=2)
+        except Exception as e:
+            print(f"⚠️  Error archiving session: {e}")
+    
+    def get_task_sessions(self, task_id: str) -> List[Dict[str, Any]]:
+        """Get all sessions for a task"""
+        sessions = []
+        
+        # Add active session if exists
+        if task_id in self.active_sessions:
+            sessions.append(self.active_sessions[task_id].to_dict())
+        
+        # Add historical sessions
+        if task_id in self.session_history:
+            sessions.extend(self.session_history[task_id])
+        
+        return sessions
+    
+    def get_session_summary(self, task_id: str) -> Dict[str, Any]:
+        """Get summary of all sessions for a task"""
+        sessions = self.get_task_sessions(task_id)
+        
+        if not sessions:
+            return {
+                "total_sessions": 0,
+                "total_duration_seconds": 0,
+                "total_files_modified": 0,
+                "total_commits": 0
+            }
+        
+        total_duration = sum(s.get("duration_seconds", 0) for s in sessions)
+        all_files_modified = set()
+        all_commits = []
+        
+        for session in sessions:
+            all_files_modified.update(session.get("files_modified", []))
+            all_commits.extend(session.get("git_commits", []))
+        
+        return {
+            "total_sessions": len(sessions),
+            "total_duration_seconds": total_duration,
+            "total_duration_formatted": str(timedelta(seconds=int(total_duration))),
+            "total_files_modified": len(all_files_modified),
+            "total_commits": len(all_commits),
+            "files_modified": list(all_files_modified),
+            "commits": all_commits,
+            "last_session": sessions[-1] if sessions else None
+        }
+    
+    def track_session_changes(self, task_id: str):
+        """Manually trigger change tracking for active session"""
+        if task_id in self.active_sessions:
+            session = self.active_sessions[task_id]
+            session.capture_changes()
+            self._save_active_session(task_id)
+            return session
+        return None
+    
+    def add_session_note(self, task_id: str, note: str):
+        """Add a note to active session"""
+        if task_id in self.active_sessions:
+            session = self.active_sessions[task_id]
+            session.add_note(note)
+            self._save_active_session(task_id)
+            return True
+        return False
+    
+    def restore_active_sessions(self):
+        """Restore active sessions from disk (on startup)"""
+        for active_file in self.sessions_dir.glob("active_*.json"):
+            try:
+                with open(active_file, 'r') as f:
+                    session_data = json.load(f)
+                
+                task_id = session_data["task_id"]
+                if session_data.get("is_active", False):
+                    # Recreate session object
+                    session = TaskSession(task_id, self.project_root)
+                    session.start_time = datetime.fromisoformat(session_data["start_time"])
+                    session.files_modified = set(session_data.get("files_modified", []))
+                    session.files_created = set(session_data.get("files_created", []))
+                    session.files_deleted = set(session_data.get("files_deleted", []))
+                    session.git_commits = session_data.get("git_commits", [])
+                    session.context_snapshots = session_data.get("context_snapshots", [])
+                    session.session_notes = session_data.get("session_notes", [])
+                    
+                    self.active_sessions[task_id] = session
+                    print(f"✅ Restored active session for task: {task_id}")
+            except Exception as e:
+                print(f"⚠️  Error restoring session from {active_file}: {e}")
         
     def get_project_info(self):
         """Get project information from config"""
@@ -363,7 +680,9 @@ class TaskManager:
         combined_text = task_desc + " " + task_output + " " + task_id_lower
         
         # Check most specific patterns first
-        if "context" in combined_text and "enhance" in combined_text:
+        if "session" in combined_text and "tracking" in combined_text:
+            component = "Session Tracking System"
+        elif "context" in combined_text and "enhance" in combined_text:
             component = "Context System"
         elif any(term in combined_text for term in ["blueprint", "generator"]) and "context" not in combined_text:
             component = "Blueprint Generator"
@@ -398,21 +717,29 @@ System Overview:
          │  (task_manager.py)    │
          └───────────┬───────────┘
                      │
-        ┌────────────┼────────────┐
-        │            │            │
-        ▼            ▼            ▼
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│ Config Sys  │ │Context Sys  │ │Blueprint Gen│{' ← YOU ARE HERE' if component == 'Blueprint Generator' else ''}
-│(config mgr) │{' ← YOU ARE HERE' if component == 'Configuration System' else ''} │(contexts/) │{' ← YOU ARE HERE' if component == 'Context System' else ''} │(blueprints)│
-└─────────────┘ └─────────────┘ └─────────────┘
+        ┌────────────┼────────────────────┐
+        │            │                    │
+        ▼            ▼                    ▼
+┌─────────────┐ ┌─────────────┐ ┌──────────────────┐
+│ Config Sys  │ │Context Sys  │ │Session Tracking  │{' ← YOU ARE HERE' if component == 'Session Tracking System' else ''}
+│(config mgr) │{' ← YOU ARE HERE' if component == 'Configuration System' else ''} │(contexts/) │{' ← YOU ARE HERE' if component == 'Context System' else ''} │ (sessions/)      │
+└─────────────┘ └─────────────┘ └──────────────────┘
+                                           │
+                                           ▼
+                                 ┌─────────────────┐
+                                 │Blueprint Gen    │{' ← YOU ARE HERE' if component == 'Blueprint Generator' else ''}
+                                 │(blueprints)     │
+                                 └─────────────────┘
 
 Data Flow:
 1. User triggers task via CLI/Web
 2. TaskManager processes request  
-3. Config System provides settings
-4. Context System generates/reads context
-5. Work happens (YOU!)
-6. Blueprint Generator creates documentation
+3. Session Tracking monitors work
+4. Config System provides settings
+5. Context System generates/reads context
+6. Work happens (YOU!)
+7. Session captures changes
+8. Blueprint Generator creates documentation
 """
         
         # Add component-specific notes
@@ -453,7 +780,24 @@ Data Flow:
         if task.get('depends_on'):
             context_parts.append(f"**Dependencies:** {', '.join(task['depends_on'])}\n")
         
-        # 2. Configuration context
+        # 2. Session tracking information
+        session_summary = self.get_session_summary(task_id)
+        if session_summary["total_sessions"] > 0:
+            context_parts.append("## Previous Work Sessions\n")
+            context_parts.append(f"**Total Sessions:** {session_summary['total_sessions']}")
+            context_parts.append(f"**Total Time Spent:** {session_summary['total_duration_formatted']}")
+            context_parts.append(f"**Files Modified:** {session_summary['total_files_modified']}")
+            context_parts.append(f"**Commits Made:** {session_summary['total_commits']}")
+            
+            if session_summary["last_session"]:
+                last = session_summary["last_session"]
+                context_parts.append(f"\n**Last Session:**")
+                context_parts.append(f"- Started: {last['start_time'][:19]}")
+                if last.get('end_time'):
+                    context_parts.append(f"- Duration: {timedelta(seconds=int(last['duration_seconds']))}")
+                context_parts.append("")
+        
+        # 3. Configuration context
         if self.config:
             context_parts.append("## Project Configuration\n")
             context_parts.append(f"- **Config loaded:** {'Yes' if project_info['config_loaded'] else 'No (using defaults)'}")
@@ -462,12 +806,12 @@ Data Flow:
             context_parts.append(f"- **Blueprints directory:** {self.config.bruce.blueprints_dir}")
             context_parts.append("")
         
-        # 3. Architecture context
+        # 4. Architecture context
         arch_context = self.generate_architecture_context(task_id)
         if arch_context:
             context_parts.append(arch_context)
         
-        # 4. Related completed tasks
+        # 5. Related completed tasks
         related_tasks = self.find_related_tasks(task_id)
         if related_tasks:
             context_parts.append("## Related Completed Tasks\n")
@@ -487,7 +831,7 @@ Data Flow:
                 
                 context_parts.append("")
         
-        # 5. Decision history from phase
+        # 6. Decision history from phase
         context_parts.append("## Decision History\n")
         context_parts.append("Key decisions from this phase that may impact your work:\n")
         
@@ -510,7 +854,7 @@ Data Flow:
         
         context_parts.append("")
         
-        # 6. Original context files
+        # 7. Original context files
         context_parts.append("## Context Documentation:\n")
         if task.get("context"):
             context = self.get_context(task["context"])
@@ -521,7 +865,7 @@ Data Flow:
         return "\n".join(context_parts)
     
     def cmd_start(self, task_id: str, enhanced: bool = True):
-        """Start working on a task - with optional enhanced context"""
+        """Start working on a task - with optional enhanced context and session tracking"""
         tasks_data = self.load_tasks()
         task = None
         
@@ -541,13 +885,17 @@ Data Flow:
             print(f"📁 Phase {task['phase']}: {task.get('phase_name', 'Unknown')}")
         print(f"📝 Description: {task['description']}")
         
+        # Start session tracking
+        session = self.start_task_session(task_id)
+        print(f"⏱️  Session tracking started at {session.start_time.strftime('%I:%M %p')}")
+        
         # Update status
         self.save_task_updates(task_id, {
             "status": "in-progress",
             "updated": datetime.now().isoformat(),
             "notes": task.get("notes", []) + [{
                 "timestamp": datetime.now().isoformat(),
-                "note": "Task started"
+                "note": f"Task started with session tracking"
             }]
         })
         
@@ -590,8 +938,12 @@ Data Flow:
         with open(context_file, 'w') as f:
             f.write(context_content)
         
+        # Add context snapshot to session
+        session.capture_context_snapshot(context_content[:500] + "...")  # First 500 chars
+        
         print(f"✓ Context saved to: {context_file}")
         print(f"\n💡 Ready for implementation!")
+        print(f"   Session is being tracked - all changes will be monitored")
         print(f"   Use 'hdw-task commit {task_id}' when complete")
     
     def get_phase_progress(self) -> Dict[int, Dict[str, Any]]:
@@ -659,10 +1011,13 @@ def main():
     # Initialize enhanced task manager
     task_manager = TaskManager(args.project_root)
     
+    # Restore any active sessions
+    task_manager.restore_active_sessions()
+    
     # Route commands to TaskManager methods
     # (Implementation continues with existing CLI structure...)
 
 if __name__ == "__main__":
-    print("This is the enhanced task manager library with config support.")
+    print("This is the enhanced task manager library with session tracking.")
     print("Import and use the TaskManager class in your code.")
     print("Or update hdw-task.py to use this implementation.")
