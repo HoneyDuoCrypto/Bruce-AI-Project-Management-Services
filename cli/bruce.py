@@ -25,6 +25,12 @@ except ImportError:
     TASK_MANAGER_AVAILABLE = False
     print("⚠️  TaskManager not found - some features may be limited")
 
+try:
+    from src.session_reporter import SessionReporter
+    SESSION_REPORTER_AVAILABLE = True
+except ImportError:
+    SESSION_REPORTER_AVAILABLE = False
+
 def load_bruce_config(project_root: Path = None) -> Dict[str, Any]:
     """Load bruce.yaml configuration with fallbacks"""
     if project_root is None:
@@ -844,38 +850,48 @@ For more help: bruce <command> --help
         parser.print_help()
         return
     
+    if TASK_MANAGER_AVAILABLE and args.command in ['list', 'status', 'start', 'commit', 'block', 'phases', 'session']:
+        task_manager = initialize_task_manager()
+        if not task_manager:
+            print("❌ Failed to initialize TaskManager")
+            return
+
     # Handle session commands
     elif args.command == 'session':
-        if args.action == 'status':
-            summary = task_manager.get_session_summary(args.task_id)
-            if args.task_id in task_manager.active_sessions:
-                session = task_manager.active_sessions[args.task_id]
-                print(f"✅ Active session for {args.task_id}")
-                print(f"Duration: {session.get_duration()}")
-            else:
-                print(f"No active session for {args.task_id}")
-            print(f"Total sessions: {summary['total_sessions']}")
-            print(f"Total time: {summary['total_duration_formatted']}")
+            if args.action == 'status':
+                summary = task_manager.get_session_summary(args.task_id)
+                if args.task_id in task_manager.active_sessions:
+                    session = task_manager.active_sessions[args.task_id]
+                    print(f"✅ Active session for {args.task_id}")
+                    print(f"Duration: {session.get_duration()}")
+                else:
+                    print(f"No active session for {args.task_id}")
+                print(f"Total sessions: {summary['total_sessions']}")
+                print(f"Total time: {summary['total_duration_formatted']}")
         
-        elif args.action == 'note':
+    elif args.action == 'note':
             if task_manager.add_session_note(args.task_id, args.message):
                 print(f"✅ Note added to session")
             else:
                 print(f"❌ No active session for {args.task_id}")
         
-        elif args.action == 'end':
+    elif args.action == 'end':
             session = task_manager.end_task_session(args.task_id, args.message)
             if session:
                 print(f"✅ Session ended. Duration: {session.get_duration()}")
             else:
                 print(f"❌ No active session for {args.task_id}")
         
-        elif args.action == 'report':
-            from src.session_reporter import SessionReporter
-            reporter = SessionReporter(task_manager)
-            report = reporter.generate_session_report(args.task_id)
-            print(report)
-    
+    elif args.action == 'report':
+            if SESSION_REPORTER_AVAILABLE:
+                from src.session_reporter import SessionReporter
+                reporter = SessionReporter(task_manager)
+                report = reporter.generate_session_report(args.task_id)
+                print(report)
+            else:
+                print("❌ SessionReporter not available")
+
+
     # Handle init command (doesn't require existing project)
     if args.command == "init":
         cmd_init(args.project_name, args.description or "", args.force)

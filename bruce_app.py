@@ -1225,6 +1225,18 @@ def generate_report():
     
     task_manager = get_current_task_manager()
     
+    # Add session supplement
+    if include_sessions:
+        try:
+            from src.session_reporter import SessionReporter
+            reporter = SessionReporter(task_manager)
+            session_supplement = reporter.generate_handoff_supplement(task_id)
+            report += "\n" + session_supplement
+        except ImportError:
+            pass  # SessionReporter not available
+        except Exception as e:
+            print(f"Session report error: {e}")
+
     # Import session reporter
     from src.session_reporter import SessionReporter
     reporter = SessionReporter(task_manager)
