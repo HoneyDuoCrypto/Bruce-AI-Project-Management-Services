@@ -1,6 +1,7 @@
 """
 Tasks management template - Complete implementation with enhanced context and modals
 FIXED: Removed invalid {% break %} tag and added proper multi-project header
+FIXED: Added session tracking display in correct location
 """
 
 def get_tasks_template():
@@ -101,6 +102,13 @@ def get_tasks_template():
                                                     <div class="task-meta">Tests: {{ task.tests }}</div>
                                                 {% endif %}
                                                 
+                                                {# Session tracking display - FIXED LOCATION #}
+                                                {% if active_sessions and task.id in active_sessions %}
+                                                    <div class="task-meta" style="color: #00d4aa; font-weight: bold;">
+                                                        ⏱️ Session Active
+                                                    </div>
+                                                {% endif %}
+                                                
                                                 {% if status == "blocked" and task.get("notes") %}
                                                     {% for note in task.get("notes", [])|reverse %}
                                                         {% if "Blocked:" in note.get("note", "") %}
@@ -114,6 +122,7 @@ def get_tasks_template():
                                                     <button class="btn btn-success" onclick="showStartDialog('{{ task.id }}')">🚀 Start Task</button>
                                                 {% elif status == 'in-progress' %}
                                                     <button class="btn btn-primary" onclick="completeTask('{{ task.id }}')">✅ Complete Task</button>
+                                                    <button class="btn btn-info" onclick="addSessionNote('{{ task.id }}')">📝 Add Note</button>
                                                 {% endif %}
                                                 
                                                 {% if status not in ['completed', 'blocked'] %}
@@ -338,6 +347,28 @@ def get_tasks_template():
         function startTask(taskId) {
             // Legacy function for backward compatibility
             showStartDialog(taskId);
+        }
+        
+        function addSessionNote(taskId) {
+            const note = prompt(`Add note for task '${taskId}':`);
+            if (!note) return;
+            
+            fetch('/api/session_note', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({task_id: taskId, note: note})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('📝 Note added to session');
+                } else {
+                    alert('❌ Failed to add note');
+                }
+            })
+            .catch(error => {
+                alert(`❌ Network error: ${error}`);
+            });
         }
         
         function previewContext(taskId) {

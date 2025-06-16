@@ -86,6 +86,13 @@ def discover_bruce_projects(search_root: Path = None) -> List[Dict[str, Any]]:
                         ).isoformat()
                     }
                     
+                    # Restore active sessions on startup
+                    print("🔄 Restoring active sessions...")
+                    initial_task_manager.restore_active_sessions()
+                    if initial_task_manager.active_sessions:
+                        print(f"✅ Restored {len(initial_task_manager.active_sessions)} active session(s)")
+
+
                     # Check if project is accessible
                     try:
                         test_tm = TaskManager(project_path)
@@ -313,7 +320,9 @@ def tasks():
         'active_page': 'tasks',
         'tasks_by_phase': tasks_by_phase,
         'tasks_data': tasks_data,
-        'tasks_json': json.dumps(tasks)  # For JavaScript
+        'tasks_json': json.dumps(tasks),  # For JavaScript
+        'active_sessions': task_manager.active_sessions
+
     })
     
     from templates.tasks import get_tasks_template
@@ -1205,15 +1214,22 @@ def generate_blueprint():
 @app.route('/api/generate_report', methods=['POST'])
 @requires_auth
 def generate_report():
-    """Generate Claude handoff report"""
+    """Generate Claude handoff report with session data"""
     data = request.json
     task_id = data.get('task_id')
     custom_summary = data.get('summary', '')
+    include_sessions = data.get('include_sessions', True)
     
     if not task_id:
         return jsonify({"success": False, "error": "No task ID provided"})
     
     task_manager = get_current_task_manager()
+    
+    # Import session reporter
+    from src.session_reporter import SessionReporter
+    reporter = SessionReporter(task_manager)
+    
+    # Original report generation code...
     tasks_data = task_manager.load_tasks()
     task = next((t for t in tasks_data.get("tasks", []) if t['id'] == task_id), None)
     if not task:
@@ -1234,6 +1250,10 @@ def generate_report():
     except:
         artifacts = task.get("output", "No artifacts specified")
     
+    if include_sessions:
+        session_supplement = reporter.generate_handoff_supplement(task_id)
+        report += "\n" + session_supplement
+
     status = task.get('status', 'pending').title()
     phase_info = f"Phase {task.get('phase', 0)}: {task.get('phase_name', 'Legacy')}"
     project_info = task_manager.get_project_info()
@@ -1289,6 +1309,27 @@ def health_check():
         "total_tasks": len(task_manager.load_tasks().get("tasks", [])),
         "architecture": "modular-templates-multi-project"
     })
+
+@app.route('/api/session_status/<task_id>')
+@requires_auth
+def session_status(task_id):
+    tm = get_current_task_manager()
+    summary = tm.get_session_summary(task_id)
+    active = task_id in tm.active_sessions
+    return jsonify({
+        "success": True,
+        "task_id": task_id,
+        "is_active": active,
+        "summary": summary
+    })
+
+@app.route('/api/session_note', methods=['POST'])
+@requires_auth
+def add_session_note():
+    data = request.json
+    tm = get_current_task_manager()
+    success = tm.add_session_note(data['task_id'], data['note'])
+    return jsonify({"success": success})
 
 if __name__ == "__main__":
     # Get initial task manager for startup info

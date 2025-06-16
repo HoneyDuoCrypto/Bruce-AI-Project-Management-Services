@@ -1187,6 +1187,11 @@ class DynamicBlueprintGenerator:
         bar = "█" * filled + "░" * (bar_length - filled)
         blueprint += f"`[{bar}] {progress['percentage']:.1f}%`\n\n"
         
+        # Add session statistics to phase blueprint
+        from src.session_reporter import SessionReporter
+        reporter = SessionReporter(self.task_manager)
+        session_summary = reporter.generate_phase_session_summary(phase_id)
+
         # Now use dynamic architecture instead of hardcoded
         blueprint += "---\n\n"
         blueprint += "## 🏗️ Current System Architecture\n\n"
@@ -1198,6 +1203,8 @@ class DynamicBlueprintGenerator:
         blueprint += dynamic_arch
         
         blueprint += f"""
+
+                
 
 ---
 

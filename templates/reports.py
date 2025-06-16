@@ -136,6 +136,13 @@ Reports are automatically saved to: claude_reports/Claude_Handoff_taskname_MMDD_
             })
             .catch(error => console.log('❌ Error syncing dropdown:', error));
             
+            // Add session data to report request
+            const requestData = {
+                task_id: taskId,
+                summary: summary,
+                include_sessions: true  // New flag
+            };
+
             // Add event handlers
             select.addEventListener('change', function() {
                 console.log('🔄 CHANGE event - switching to:', this.value);

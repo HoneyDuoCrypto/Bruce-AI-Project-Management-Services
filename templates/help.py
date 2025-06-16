@@ -94,6 +94,27 @@ def get_help_template():
             </div>
         </div>
         
+        <div class="help-section">
+            <h3 style="color: {{ theme_color }}; margin-bottom: 15px;">⏱️ Session Tracking System</h3>
+            <p style="color: #ccc; margin-bottom: 15px;">Bruce automatically tracks your work sessions for better handoffs:</p>
+            <ul style="margin-left: 20px; line-height: 1.8; color: #ccc;">
+                <li><strong>Automatic Time Tracking:</strong> Records how long you work on each task</li>
+                <li><strong>File Change Monitoring:</strong> Tracks which files you modify during work</li>
+                <li><strong>Git Integration:</strong> Associates commits with work sessions</li>
+                <li><strong>Session Notes:</strong> Add progress notes during work</li>
+                <li><strong>Handoff Context:</strong> Session data included in Claude reports</li>
+            </ul>
+            <div class="code-block">
+            # Session commands
+            bruce session status task-id     # Check active session
+            bruce session note task-id --message "Progress update"
+            bruce session end task-id       # Manually end session
+            bruce session report task-id    # Generate session report
+                </div>
+        </div>
+
+
+
         <div class="container">
             <div class="content-section">
                 <h2 class="section-title">📖 Bruce User Guide - Complete with Multi-Project Support</h2>

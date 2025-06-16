@@ -831,12 +831,50 @@ For more help: bruce <command> --help
     add_phase_parser.add_argument("--id", type=int, required=True, help="Phase ID")
     add_phase_parser.add_argument("--name", required=True, help="Phase name")
     add_phase_parser.add_argument("--description", required=True, help="Phase description")
+
+    # Session tracking commands
+    session_parser = subparsers.add_parser("session", help="Session tracking commands")
+    session_parser.add_argument("action", choices=["status", "end", "note", "report"])
+    session_parser.add_argument("task_id", help="Task ID")
+    session_parser.add_argument("--message", help="Note or end message")
     
     args = parser.parse_args()
     
     if not args.command:
         parser.print_help()
         return
+    
+    # Handle session commands
+    elif args.command == 'session':
+        if args.action == 'status':
+            summary = task_manager.get_session_summary(args.task_id)
+            if args.task_id in task_manager.active_sessions:
+                session = task_manager.active_sessions[args.task_id]
+                print(f"✅ Active session for {args.task_id}")
+                print(f"Duration: {session.get_duration()}")
+            else:
+                print(f"No active session for {args.task_id}")
+            print(f"Total sessions: {summary['total_sessions']}")
+            print(f"Total time: {summary['total_duration_formatted']}")
+        
+        elif args.action == 'note':
+            if task_manager.add_session_note(args.task_id, args.message):
+                print(f"✅ Note added to session")
+            else:
+                print(f"❌ No active session for {args.task_id}")
+        
+        elif args.action == 'end':
+            session = task_manager.end_task_session(args.task_id, args.message)
+            if session:
+                print(f"✅ Session ended. Duration: {session.get_duration()}")
+            else:
+                print(f"❌ No active session for {args.task_id}")
+        
+        elif args.action == 'report':
+            from src.session_reporter import SessionReporter
+            reporter = SessionReporter(task_manager)
+            report = reporter.generate_session_report(args.task_id)
+            print(report)
     
     # Handle init command (doesn't require existing project)
     if args.command == "init":

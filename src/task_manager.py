@@ -706,7 +706,7 @@ Project: {project_name}
 System Overview:
 ┌─────────────────────┐     ┌─────────────────────┐
 │   CLI Interface     │     │   Web Dashboard     │
-│  (hdw-task.py)     │     │  (hdw_complete.py)  │
+│  (bruce.py    )     │     │  (bruce_app.py)     │
 └──────────┬──────────┘     └──────────┬──────────┘
            │                           │
            └─────────┬─────────────────┘
@@ -1020,4 +1020,5 @@ def main():
 if __name__ == "__main__":
     print("This is the enhanced task manager library with session tracking.")
     print("Import and use the TaskManager class in your code.")
-    print("Or update hdw-task.py to use this implementation.")
+    print(f"   Session is being tracked - all changes will be monitored")
+    print(f"   Use 'bruce commit {task_id}' when complete")
