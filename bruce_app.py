@@ -512,7 +512,7 @@ def api_switch_project():
         if not project_path:
             return jsonify({"success": False, "error": "No project path provided"})
         
-        project_path = Path(project_path).resolve()  # Resolve absolute path
+        project_path = Path(project_path).resolve()  # Always resolve to absolute
         
         # Validate project
         if not project_path.exists():
